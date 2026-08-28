@@ -31,9 +31,11 @@ client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 console = Console()
 
 TODAY = datetime.datetime.now().strftime("%Y-%m-%d")
+ASSISTANT_NAME = "커리마"
 
 SYSTEM_INSTRUCTION = (
-    f"오늘 날짜는 {TODAY}입니다. 사용자가 '오늘', '어제', '이번 달'처럼 상대적인 날짜를 말하면 "
+    f"당신의 이름은 '{ASSISTANT_NAME}'입니다. 오늘 날짜는 {TODAY}입니다. "
+    "사용자가 '오늘', '어제', '이번 달'처럼 상대적인 날짜를 말하면 "
     "이 날짜를 기준으로 계산해서 도구 호출 시 날짜는 YYYY-MM-DD, 월은 YYYY-MM 형식으로 변환해서 넘기세요. "
     "당신은 개인 거래 내역/예산, 할일(구글 할일 연동), 메모를 관리하고 생활 계산(더치페이/D-day/만나이/근무일수), "
     "날씨, 환율 조회까지 도와주는 개인비서 에이전트입니다."
@@ -301,25 +303,16 @@ def execute_tool_call(step):
 
 
 MASCOT = "\n".join([
-    " ▄▄▄▄▄ ",
-    "█ ◕ ◕ █",
-    "█  ω  █",
-    " ▀▀▀▀▀ ",
+    "   ✦         ✦",
+    "  ╭─────────╮",
+    "  │  ◕   ◕  │",
+    "  │    ﹏    │",
+    "  ╰─────────╯",
+    "   ✦         ✦",
 ])
 
-
-def print_welcome():
-    categories = ", ".join(tools.get_categories())
-
-    console.rule("[bold]가계부 도우미[/bold]", style="cyan")
-    console.print()
-    console.print(Align.center(Text(MASCOT, style="bold yellow")))
-    console.print(Align.center(Text("안녕하세요! 저는 '코이니'예요, 가계부 도우미가 도와드릴게요!", style="bold cyan")))
-    console.print()
-
-    console.print("자연어로 편하게 말씀해주세요.\n", style="bold")
-
-    examples = [
+HELP_SECTIONS = [
+    ("가계부", [
         ("등록", "식비 예산 30만원으로 잡아줘 / 오늘 점심 만원 썼어"),
         ("검색", "이번 달 식비 내역 보여줘"),
         ("수정", "어제 그 거래 7천원으로 바꿔줘"),
@@ -329,20 +322,75 @@ def print_welcome():
         ("JSON 저장", "이번 달 거래 내역 json으로 저장해줘"),
         ("월별 보고서", "8월 내역 정리해줘"),
         ("카테고리 관리", "차량 유지비 카테고리 추가해줘"),
-        ("할일 관리", "우유 사야 돼 등록해줘 / 방금 그거 완료했어 / 완료된 거 정리해줘"),
-        ("메모", "발표자료 아이디어 메모해줘 / 아이디어 태그 메모 보여줘"),
-        ("생활 계산기", "3만원 4명이서 더치페이하면 얼마씩? / 크리스마스까지 며칠 남았어? / 2000년 1월 1일생 만나이"),
-        ("날씨/환율", "서울 날씨 어때? / 100달러면 원화로 얼마야?"),
-    ]
+    ]),
+    ("할일", [
+        ("등록", "우유 사야 돼 등록해줘"),
+        ("완료", "방금 그거 완료했어"),
+        ("정리", "완료된 거 정리해줘"),
+        ("되돌리기", "방금 그거 취소해줘"),
+    ]),
+    ("메모", [
+        ("등록", "발표자료 아이디어 메모해줘, 태그는 아이디어로"),
+        ("조회", "아이디어 태그 메모 보여줘"),
+        ("삭제", "그 메모 지워줘"),
+    ]),
+    ("생활 계산기", [
+        ("더치페이", "3만원 4명이서 더치페이하면 얼마씩?"),
+        ("D-day", "크리스마스까지 며칠 남았어?"),
+        ("만나이", "2000년 1월 1일생 만나이 얼마야?"),
+        ("근무일수", "8월 1일부터 8월 31일까지 평일 며칠이야?"),
+    ]),
+    ("날씨/환율", [
+        ("날씨", "서울 날씨 어때?"),
+        ("환율", "100달러면 원화로 얼마야?"),
+    ]),
+]
+
+
+def _example_grid(items):
     grid = Table.grid(padding=(0, 1, 0, 2))
     grid.add_column(style="cyan", no_wrap=True)
     grid.add_column(style="dim")
-    for label, example in examples:
+    for label, example in items:
         grid.add_row(f"• {label}", example)
-    console.print(grid)
+    return grid
 
-    console.print(f"\n현재 카테고리: {categories}", style="dim")
-    console.print("'도움말'로 이 안내를 다시 보고, '새 대화'로 대화를 초기화하고, '종료'로 끝냅니다.", style="dim italic")
+
+def _resolve_help_section(text):
+    """메뉴 번호(1,2,3...) 또는 카테고리 이름과 정확히 일치할 때만 해당 섹션을 찾는다."""
+    if text.isdigit():
+        index = int(text) - 1
+        return HELP_SECTIONS[index] if 0 <= index < len(HELP_SECTIONS) else None
+    return next((section for section in HELP_SECTIONS if section[0] == text), None)
+
+
+def print_help_section(section):
+    name, items = section
+    console.rule(f"[bold]{name}[/bold]", style="cyan")
+    console.print(_example_grid(items))
+    if name == "가계부":
+        console.print(f"\n현재 카테고리: {', '.join(tools.get_categories())}", style="dim")
+    console.print()
+
+
+def print_welcome():
+    console.rule(f"[bold]{ASSISTANT_NAME}[/bold]", style="cyan")
+    console.print()
+    console.print(Align.center(Text(MASCOT, style="bold orange1")))
+    console.print(Align.center(Text(f"안녕하세요! 저는 '{ASSISTANT_NAME}'예요, 필요한 걸 편하게 말씀해주세요!", style="bold cyan")))
+    console.print()
+
+    console.print("무엇을 도와드릴까요? 번호나 이름을 입력하면 자세한 사용법을 보여드려요.\n", style="bold")
+
+    menu = Table.grid(padding=(0, 1, 0, 2))
+    menu.add_column(style="cyan", no_wrap=True)
+    menu.add_column()
+    for i, (name, _) in enumerate(HELP_SECTIONS, start=1):
+        menu.add_row(f"{i}.", name)
+    console.print(menu)
+
+    console.print("\n물론 메뉴를 거치지 않고 바로 자연어로 말씀하셔도 됩니다.", style="dim")
+    console.print("'도움말'로 이 메뉴를 다시 보고, '새 대화'로 대화를 초기화하고, '종료'로 끝냅니다.", style="dim italic")
     console.print()
 
 
@@ -371,6 +419,11 @@ def run():
                 console.print("[dim]대화를 새로 시작합니다.[/dim]\n")
                 continue
 
+            section = _resolve_help_section(stripped)
+            if section:
+                print_help_section(section)
+                continue
+
             console.rule(style="grey50")
 
             with console.status("[dim]생각하는 중...[/dim]", spinner="dots"):
@@ -388,7 +441,7 @@ def run():
                     previous_interaction_id = interaction.id
                     save_previous_interaction_id(previous_interaction_id)
                 else:
-                    console.print("[bold green]● 가계부 도우미[/bold green]")
+                    console.print(f"[bold green]● {ASSISTANT_NAME}[/bold green]")
                     console.print(Padding(Markdown(interaction.output_text or ""), (0, 0, 0, 2)))
                     break
         except (EOFError, KeyboardInterrupt):
