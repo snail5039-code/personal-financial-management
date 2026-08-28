@@ -16,12 +16,19 @@ import uuid
 # first_args: 모드에 들어와 처음 물어볼 때 / next_args: 같은 대화를 이어갈 때.
 # 이걸 나눠야 "아까 말한 그거" 같은 대화가 통한다. 두 CLI 모두 첫 호출과
 # 이어가기 호출의 인자 형태가 달라서 따로 둔다.
+#
+# {perm}은 읽기/쓰기 권한 인자가 들어갈 자리. 코덱스는 `exec resume`이
+# --sandbox를 받지 않아 next_args에 {perm}이 없다. 그래서 권한을 바꿀 때는
+# 대화를 새로 시작해야 실제로 반영된다(호출하는 쪽에서 그렇게 처리한다).
 AGENTS = {
     "클로드": {
         "label": "클로드",
         "executable": "claude",
-        "first_args": ["--session-id", "{session}", "-p"],
-        "next_args": ["--resume", "{session}", "-p"],
+        "first_args": ["{perm}", "--session-id", "{session}", "-p"],
+        "next_args": ["{perm}", "--resume", "{session}", "-p"],
+        # 기본값이 이미 쓰기를 막으므로 읽기 전용에는 따로 줄 인자가 없다.
+        "read_args": [],
+        "write_args": ["--permission-mode", "acceptEdits"],
         "login_args": ["auth", "login"],
         "status_args": ["auth", "status"],
         "style": "bright_magenta",
@@ -29,8 +36,11 @@ AGENTS = {
     "코덱스": {
         "label": "코덱스",
         "executable": "codex",
-        "first_args": ["exec"],
+        "first_args": ["exec", "{perm}"],
         "next_args": ["exec", "resume", "--last"],
+        "read_args": ["--sandbox", "read-only"],
+        # workspace-write는 작업 폴더 안에서만 쓰기를 허용한다.
+        "write_args": ["--sandbox", "workspace-write"],
         "login_args": ["login"],
         "status_args": ["login", "status"],
         "style": "bright_green",
@@ -138,10 +148,27 @@ def new_session_id():
     return str(uuid.uuid4())
 
 
-def ask_agent(agent_key, prompt, cwd=None, timeout=600, session_id=None, is_first=True):
+def _build_args(agent, is_first, session_id, allow_write):
+    template = agent["first_args"] if is_first else agent["next_args"]
+    perm = agent["write_args"] if allow_write else agent["read_args"]
+
+    args = []
+    for part in template:
+        if part == "{perm}":
+            args.extend(perm)
+        elif part == "{session}":
+            args.append(session_id or "")
+        else:
+            args.append(part)
+    return args
+
+
+def ask_agent(agent_key, prompt, cwd=None, timeout=600, session_id=None, is_first=True,
+              allow_write=False):
     """CLI에 프롬프트를 넘기고 답변을 받아온다.
 
     session_id와 is_first를 넘기면 같은 대화를 이어간다(앞선 질문을 기억한다).
+    allow_write가 True면 CLI가 작업 폴더의 파일을 직접 고칠 수 있다.
     성공하면 {"output": ...}, 실패하면 {"error": ...}를 준다.
     """
     agent = AGENTS[agent_key]
@@ -154,8 +181,7 @@ def ask_agent(agent_key, prompt, cwd=None, timeout=600, session_id=None, is_firs
             )
         }
 
-    template = agent["first_args"] if is_first else agent["next_args"]
-    args = [part.replace("{session}", session_id or "") for part in template]
+    args = _build_args(agent, is_first, session_id, allow_write)
 
     try:
         result = subprocess.run(

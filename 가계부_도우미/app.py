@@ -308,15 +308,22 @@ MASCOT_COLOR = "#c1654a"
 MASCOT_EYE_COLOR = "#000000"
 
 # 마스코트를 '선'이 아니라 '면'으로 그린다. 글자 대신 배경색을 칠해야 이미지처럼
-# 꽉 찬 실루엣이 나온다. B=몸통, 공백=투명(배경 그대로), 그 외 문자=눈.
-# 눈은 반칸 블록(▀▄)을 두 줄에 걸쳐 엇갈리게 놓아 큼직한 > < 갈매기 모양을 만든다.
+# 꽉 찬 실루엣이 나온다.
+#   B=몸통, 공백=투명(배경 그대로), K=검정(눈), S=가슴 화면, 그 외 문자=화면 속 글자
 MASCOT_MAP = [
-    "    BBBBBBBBBBBBB    ",
-    "    BBBBBBBBBBBBB    ",
-    "BBBBBBB▀▄BBB▄▀BBBBBBB",
-    "BBBBBBB▄▀BBB▀▄BBBBBBB",
-    "    BBBBBBBBBBBBB    ",
-    "    BBBBBBBBBBBBB    ",
+    "         BB          ",
+    "         BB          ",
+    "   BBBBBBBBBBBBBBB   ",
+    "   BBBBBBBBBBBBBBB   ",
+    " BBBBBKBBBBBBBKBBBBB ",
+    " BBBBBKKBBBBBKKBBBBB ",
+    " BBBBBBKBBBBBKBBBBBB ",
+    "   BBBBBBKKKBBBBBB   ",
+    "   BBBBBBBBBBBBBBB   ",
+    "   BBSSSSSSSSSSSBB   ",
+    "   BBSSSS</>SSSSBB   ",
+    "   BBSSSSSSSSSSSBB   ",
+    "   BBBBBBBBBBBBBBB   ",
     "    BBBB     BBBB    ",
     "    BBBB     BBBB    ",
 ]
@@ -324,7 +331,8 @@ MASCOT_MAP = [
 
 def render_mascot():
     body = f"on {MASCOT_COLOR}"
-    eye = f"{MASCOT_EYE_COLOR} on {MASCOT_COLOR}"
+    dark = f"{MASCOT_EYE_COLOR} on {MASCOT_EYE_COLOR}"          # 눈: 검게 파낸 칸
+    screen_text = f"{MASCOT_COLOR} on {MASCOT_EYE_COLOR}"        # 가슴 화면 속 </>
 
     mascot = Text()
     for row_index, row in enumerate(MASCOT_MAP):
@@ -337,8 +345,12 @@ def render_mascot():
                 mascot.append(" " * len(run), style=body)
             elif char == " ":
                 mascot.append(run)
+            elif char == "K":
+                mascot.append(" " * len(run), style=dark)
+            elif char == "S":
+                mascot.append(" " * len(run), style=dark)
             else:
-                mascot.append(run, style=eye)
+                mascot.append(run, style=screen_text)
     return mascot
 
 HELP_SECTIONS = [
@@ -436,6 +448,7 @@ def enter_agent_mode(agent_key):
     # 이 CLI들은 파일을 읽고 고칠 수 있으므로 어느 폴더에서 도는지 분명히 알린다.
     console.print(f"작업 폴더: {AGENT_WORKDIR}", style="dim")
     console.print("앞선 질문을 기억하니 이어서 물어보셔도 됩니다.", style="dim")
+    console.print("지금은 읽기 전용입니다. 파일을 고치게 하려면 '쓰기 허용'.", style="dim")
     console.print(
         "'로그인' / '상태'로 계정 관리, '새 대화'로 기억 초기화, '나가기'로 커리마 복귀.\n",
         style="dim italic",
@@ -466,8 +479,12 @@ def print_agent_status(agent_key):
     console.print()
 
 
+def new_agent_session(allow_write=False):
+    return {"id": agent_cli.new_session_id(), "started": False, "allow_write": allow_write}
+
+
 def ask_agent_and_print(agent_key, prompt, session):
-    """session은 {"id": ..., "started": bool}. 첫 질문 이후로는 대화를 이어간다."""
+    """session은 {"id", "started", "allow_write"}. 첫 질문 이후로는 대화를 이어간다."""
     agent = agent_cli.AGENTS[agent_key]
     with console.status(f"[dim]{agent['label']}에게 물어보는 중...[/dim]", spinner="dots"):
         result = agent_cli.ask_agent(
@@ -476,6 +493,7 @@ def ask_agent_and_print(agent_key, prompt, session):
             cwd=AGENT_WORKDIR,
             session_id=session["id"],
             is_first=not session["started"],
+            allow_write=session["allow_write"],
         )
 
     if "error" not in result:
@@ -505,7 +523,12 @@ def run():
         try:
             if agent_mode:
                 style = agent_cli.AGENTS[agent_mode]["style"]
-                user_input = console.input(f"[bold {style}]{agent_mode} ›[/bold {style}] ")
+                # 쓰기가 켜져 있으면 프롬프트에 표시해서 모르고 쓰는 일이 없게 한다.
+                if agent_session["allow_write"]:
+                    label = f"[bold yellow]{agent_mode}(쓰기) ›[/bold yellow]"
+                else:
+                    label = f"[bold {style}]{agent_mode} ›[/bold {style}]"
+                user_input = console.input(f"{label} ")
             else:
                 user_input = console.input("[bold cyan]›[/bold cyan] ")
             stripped = user_input.strip()
@@ -528,8 +551,22 @@ def run():
                     print_agent_status(agent_mode)
                     continue
                 if stripped in ("새 대화", "초기화"):
-                    agent_session = {"id": agent_cli.new_session_id(), "started": False}
+                    agent_session = new_agent_session(agent_session["allow_write"])
                     console.print("[dim]새 대화로 시작합니다.[/dim]\n")
+                    continue
+                if stripped in ("쓰기 허용", "쓰기허용"):
+                    # 코덱스는 권한이 세션 시작 때 고정돼서, 대화를 새로 열어야 실제로 반영된다.
+                    agent_session = new_agent_session(allow_write=True)
+                    console.print(
+                        "[bold yellow]⚠ 이제 파일을 직접 수정합니다. "
+                        "되돌리려면 git을 쓰세요 (git diff / git checkout -- .)[/bold yellow]"
+                    )
+                    console.print("[dim]권한이 바뀌어 새 대화로 시작합니다.[/dim]\n")
+                    continue
+                if stripped in ("쓰기 잠금", "쓰기잠금", "읽기 전용"):
+                    agent_session = new_agent_session(allow_write=False)
+                    console.print("[green]읽기 전용으로 돌아왔습니다.[/green]")
+                    console.print("[dim]권한이 바뀌어 새 대화로 시작합니다.[/dim]\n")
                     continue
                 ask_agent_and_print(agent_mode, stripped, agent_session)
                 continue
@@ -545,7 +582,7 @@ def run():
                     )
                     continue
                 agent_mode = entered
-                agent_session = {"id": agent_cli.new_session_id(), "started": False}
+                agent_session = new_agent_session()
                 enter_agent_mode(entered)
                 continue
 
