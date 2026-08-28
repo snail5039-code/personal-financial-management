@@ -1,0 +1,106 @@
+Personal financial management
+개인 예산 관리 AI Agent
+
+구현 조건 : vscode 내부에서 파이썬으로 동작하게 하기! (웹은 필요 없음)
+
+Gemini Function Calling을 이용해서 자연어로 개인 거래 내역과 예산을 관리하는 에이전트 구현
+
+tools 안에는 거래 등록, 검색, 수정, 예산 관리 기능, Json 파일저장, 월별 거래내역 저장
+ex)
+tools = [
+	transaction_registration,
+	transaction_search,
+	transaction_Modification,
+	transaction_Delete,
+	transaction_Budget_Management,
+	transaction_Save_Json,
+	monthly_Transaction_History,
+	category_registration,
+	category_Modification,
+	category_Delete
+]
+
+1) 세부사항 
+
+1.transaction_registration
+-> 
+카테고리 = [식비, 필요 지출(관리비 등), 의류비, 운동, 일상생활, 기타] : 등등 
+오늘 날짜(파이썬으로 받기 datetime), 등록 가격, 현재 가지고 있는 돈(설정할 예산)
+, 설명(무엇 때문에 쓰는지 간단하게, 무엇 때문에 돈 수입이 있는지 ex:월급 등) 
+* 거래 등록 시 0원은 등록하지 않는다 X 폐기, 예산등록을 못하기 때문에
+* 반환값 : 카테고리 별 등록된 딕셔너리
+
+
+2. transaction_search
+-> 카테고리, 날짜, 등록된 거래, 검색어
+* 검색과 일치하는 것이 없을때는 찾을 수 없다고 한다.
+* 반환값 : 검색어를 기준으로 찾은 등록된 거래 내역 (카테고리, 날짜, 가격)
+
+
+3. transaction_Modification
+-> 카테고리, 날짜, 등록된 거래, 수정할 id
+* 수정할 id 값이 없는 경우 찾을 수 없다고 한다. -> 아이디 값은 필수로 받지 않아도된다
+  카테고리, 날짜, 설명 등으로 해서 할 수 있게
+* 반환값 : 수정한 거래 내역(카테고리, 날짜, 등록된 거래, 수정한 id 값)
+
+
+4. transaction_Delete
+-> id, 검색어 기준으로 삭제
+* 나오지 않는 것은 삭제할 수 없다고 한다.
+* 반환값 : 없음(삭제 알림 문구)
+
+
+5. transaction_Budget_Management
+-> Transaction_registration에서 현재 가지고 있는 돈을 바탕으로 남은 돈을 카테고리 별로 계산
+카테고리, 날짜, 남은 돈, 사용금액
+* 잘못된 카테고리로 예산관리를 할 경우 못찾는다고 한다
+* 반환값 : 등록된 거래내역을 바탕 으로 등록한 돈 - 거래내역으로 카테고리, 날짜, 남은돈 
+
+
+6. transaction_Save_Json
+-> id, 검색어 
+* Json 파일로 저장해서 다운로드 할 수 있게
+* 반환값 : id, 검색어를 기준으로 등록한 거래 내역을 json 파일로 반환
+
+
+7. monthly_Transaction_History
+-> 날짜(월)
+* 월별 거래 내역을 markdown 보고서로 저장
+* 반환값 : 등록된 거래 내역을 월별로 markdown 형식으로 반환
+
+8. category_registration
+-> 없는 카테고리 등록 가능
+* 반환값 : 카테고리 리스트에 추가
+
+9, 10 category_Modification, category_Delete
+-> 위에와 동일하게
+
+스키마 예시
+
+monthly_Transaction_History_tool = {
+    "type": "function",
+    "name": "monthly_Transaction_History",
+    "description": "월별 거래 내역을 조회하여 MarkDown 문서로 만들어서 저장한다",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "month": {
+                "type": "string",
+                "description": "조회할 거래 월 내역",
+            },
+        },
+        "required": ["month"]
+    }
+}
+
+사용 모델 : gemini-3.6-flash
+api key = .env에 GEMINI_API_KEY로 저장
+
+while문을 사용해서 사용자로 부터 인풋을 받아서 그 자연어를 바탕으로 함수를 실행시킨 후 도구 호출 자연어 반환
+종료 시에는 종료를 사용자가 칠시 종료
+
+전에 대화를 기억할 수 있게 interaction.id 저장 (store=True)
+
+
+
+
