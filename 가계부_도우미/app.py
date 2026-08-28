@@ -16,6 +16,7 @@ from google import genai
 from rich.align import Align
 from rich.console import Console, Group
 from rich.markdown import Markdown
+from rich.padding import Padding
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -305,14 +306,8 @@ def run():
                     previous_interaction_id = interaction.id
                     save_previous_interaction_id(previous_interaction_id)
                 else:
-                    console.print(
-                        Panel(
-                            Markdown(interaction.output_text or ""),
-                            title="[bold green]가계부 도우미[/bold green]",
-                            border_style="green",
-                            padding=(0, 2),
-                        )
-                    )
+                    console.print("[bold green]● 가계부 도우미[/bold green]")
+                    console.print(Padding(Markdown(interaction.output_text or ""), (0, 0, 0, 2)))
                     break
         except (EOFError, KeyboardInterrupt):
             console.print()
@@ -320,7 +315,7 @@ def run():
 
         console.print()
 
-    console.print(Panel("대화를 종료합니다. 안녕히 가세요!", border_style="cyan"))
+    console.print("[cyan]● 대화를 종료합니다. 안녕히 가세요![/cyan]")
 
 
 if __name__ == "__main__":
