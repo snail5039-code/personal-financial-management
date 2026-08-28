@@ -11,12 +11,17 @@ import json
 import re
 import shutil
 import subprocess
+import uuid
 
+# first_args: 모드에 들어와 처음 물어볼 때 / next_args: 같은 대화를 이어갈 때.
+# 이걸 나눠야 "아까 말한 그거" 같은 대화가 통한다. 두 CLI 모두 첫 호출과
+# 이어가기 호출의 인자 형태가 달라서 따로 둔다.
 AGENTS = {
     "클로드": {
         "label": "클로드",
         "executable": "claude",
-        "args": ["-p"],
+        "first_args": ["--session-id", "{session}", "-p"],
+        "next_args": ["--resume", "{session}", "-p"],
         "login_args": ["auth", "login"],
         "status_args": ["auth", "status"],
         "style": "bright_magenta",
@@ -24,7 +29,8 @@ AGENTS = {
     "코덱스": {
         "label": "코덱스",
         "executable": "codex",
-        "args": ["exec"],
+        "first_args": ["exec"],
+        "next_args": ["exec", "resume", "--last"],
         "login_args": ["login"],
         "status_args": ["login", "status"],
         "style": "bright_green",
@@ -127,9 +133,15 @@ def _clean_output(text, prompt):
     return "\n".join(cleaned).strip()
 
 
-def ask_agent(agent_key, prompt, cwd=None, timeout=600):
+def new_session_id():
+    """모드에 들어갈 때마다 새 대화를 열기 위한 id."""
+    return str(uuid.uuid4())
+
+
+def ask_agent(agent_key, prompt, cwd=None, timeout=600, session_id=None, is_first=True):
     """CLI에 프롬프트를 넘기고 답변을 받아온다.
 
+    session_id와 is_first를 넘기면 같은 대화를 이어간다(앞선 질문을 기억한다).
     성공하면 {"output": ...}, 실패하면 {"error": ...}를 준다.
     """
     agent = AGENTS[agent_key]
@@ -142,9 +154,12 @@ def ask_agent(agent_key, prompt, cwd=None, timeout=600):
             )
         }
 
+    template = agent["first_args"] if is_first else agent["next_args"]
+    args = [part.replace("{session}", session_id or "") for part in template]
+
     try:
         result = subprocess.run(
-            [executable, *agent["args"], prompt],
+            [executable, *args, prompt],
             capture_output=True,
             text=True,
             encoding="utf-8",

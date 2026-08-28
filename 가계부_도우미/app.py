@@ -435,7 +435,11 @@ def enter_agent_mode(agent_key):
     console.print(f"이제 입력하시는 내용은 {agent['label']}에게 그대로 전달됩니다.", style=agent["style"])
     # 이 CLI들은 파일을 읽고 고칠 수 있으므로 어느 폴더에서 도는지 분명히 알린다.
     console.print(f"작업 폴더: {AGENT_WORKDIR}", style="dim")
-    console.print("'로그인' / '상태'로 계정을 관리하고, '나가기'로 커리마에 돌아옵니다.\n", style="dim italic")
+    console.print("앞선 질문을 기억하니 이어서 물어보셔도 됩니다.", style="dim")
+    console.print(
+        "'로그인' / '상태'로 계정 관리, '새 대화'로 기억 초기화, '나가기'로 커리마 복귀.\n",
+        style="dim italic",
+    )
 
 
 # 로그인이 풀렸을 때 CLI가 내는 문구들. 감지되면 로그인하라고 안내한다.
@@ -462,10 +466,20 @@ def print_agent_status(agent_key):
     console.print()
 
 
-def ask_agent_and_print(agent_key, prompt):
+def ask_agent_and_print(agent_key, prompt, session):
+    """session은 {"id": ..., "started": bool}. 첫 질문 이후로는 대화를 이어간다."""
     agent = agent_cli.AGENTS[agent_key]
     with console.status(f"[dim]{agent['label']}에게 물어보는 중...[/dim]", spinner="dots"):
-        result = agent_cli.ask_agent(agent_key, prompt, cwd=AGENT_WORKDIR)
+        result = agent_cli.ask_agent(
+            agent_key,
+            prompt,
+            cwd=AGENT_WORKDIR,
+            session_id=session["id"],
+            is_first=not session["started"],
+        )
+
+    if "error" not in result:
+        session["started"] = True
 
     if "error" in result:
         console.print(f"[bold red]● {agent['label']} 오류[/bold red]")
@@ -481,6 +495,7 @@ def ask_agent_and_print(agent_key, prompt):
 def run():
     previous_interaction_id = load_previous_interaction_id()
     agent_mode = None
+    agent_session = None
 
     print_welcome()
     if previous_interaction_id:
@@ -504,6 +519,7 @@ def run():
                 if stripped in ("나가기", "돌아가기"):
                     console.print(f"[dim]{ASSISTANT_NAME}로 돌아왔습니다.[/dim]\n")
                     agent_mode = None
+                    agent_session = None
                     continue
                 if stripped == "로그인":
                     run_agent_login(agent_mode)
@@ -511,7 +527,11 @@ def run():
                 if stripped in ("상태", "로그인 상태"):
                     print_agent_status(agent_mode)
                     continue
-                ask_agent_and_print(agent_mode, stripped)
+                if stripped in ("새 대화", "초기화"):
+                    agent_session = {"id": agent_cli.new_session_id(), "started": False}
+                    console.print("[dim]새 대화로 시작합니다.[/dim]\n")
+                    continue
+                ask_agent_and_print(agent_mode, stripped, agent_session)
                 continue
 
             entered = next(
@@ -525,6 +545,7 @@ def run():
                     )
                     continue
                 agent_mode = entered
+                agent_session = {"id": agent_cli.new_session_id(), "started": False}
                 enter_agent_mode(entered)
                 continue
 
