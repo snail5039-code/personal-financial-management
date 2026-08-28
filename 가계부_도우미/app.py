@@ -21,6 +21,7 @@ from rich.padding import Padding
 from rich.table import Table
 from rich.text import Text
 
+import agent_cli
 import tools
 
 sys.stdout.reconfigure(encoding="utf-8")
@@ -419,12 +420,67 @@ def print_welcome():
     console.print(menu)
 
     console.print("\n물론 메뉴를 거치지 않고 바로 자연어로 말씀하셔도 됩니다.", style="dim")
+    console.print("'클로드 모드' / '코덱스 모드'로 코딩용 AI에게 직접 물어볼 수 있어요.", style="dim")
     console.print("'도움말'로 이 메뉴를 다시 보고, '새 대화'로 대화를 초기화하고, '종료'로 끝냅니다.", style="dim italic")
+    console.print()
+
+
+AGENT_WORKDIR = os.getcwd()
+
+
+def enter_agent_mode(agent_key):
+    """외부 CLI 모드로 들어갈 때의 안내를 보여준다."""
+    agent = agent_cli.AGENTS[agent_key]
+    console.rule(f"[bold]{agent['label']} 모드[/bold]", style=agent["style"])
+    console.print(f"이제 입력하시는 내용은 {agent['label']}에게 그대로 전달됩니다.", style=agent["style"])
+    # 이 CLI들은 파일을 읽고 고칠 수 있으므로 어느 폴더에서 도는지 분명히 알린다.
+    console.print(f"작업 폴더: {AGENT_WORKDIR}", style="dim")
+    console.print("'로그인' / '상태'로 계정을 관리하고, '나가기'로 커리마에 돌아옵니다.\n", style="dim italic")
+
+
+# 로그인이 풀렸을 때 CLI가 내는 문구들. 감지되면 로그인하라고 안내한다.
+AUTH_ERROR_HINTS = ("authenticate", "login", "unauthorized", "oauth", "expired", "로그인")
+
+
+def run_agent_login(agent_key):
+    agent = agent_cli.AGENTS[agent_key]
+    console.print(f"[dim]{agent['label']} 로그인 절차를 시작합니다. 브라우저에서 직접 로그인해주세요.[/dim]\n")
+    result = agent_cli.login(agent_key)
+    console.print()
+    if "error" in result:
+        console.print(f"[red]{result['error']}[/red]\n")
+    else:
+        console.print(f"[green]{result['output']}[/green]\n")
+
+
+def print_agent_status(agent_key):
+    agent = agent_cli.AGENTS[agent_key]
+    result = agent_cli.auth_status(agent_key)
+    body = result.get("error") or result["output"]
+    console.print(f"[bold {agent['style']}]● {agent['label']} 계정 상태[/bold {agent['style']}]")
+    console.print(Padding(Text(body, style="dim"), (0, 0, 0, 2)))
+    console.print()
+
+
+def ask_agent_and_print(agent_key, prompt):
+    agent = agent_cli.AGENTS[agent_key]
+    with console.status(f"[dim]{agent['label']}에게 물어보는 중...[/dim]", spinner="dots"):
+        result = agent_cli.ask_agent(agent_key, prompt, cwd=AGENT_WORKDIR)
+
+    if "error" in result:
+        console.print(f"[bold red]● {agent['label']} 오류[/bold red]")
+        console.print(Padding(Text(result["error"], style="red"), (0, 0, 0, 2)))
+        if any(hint in result["error"].lower() for hint in AUTH_ERROR_HINTS):
+            console.print(Padding(Text("'로그인'이라고 입력하면 바로 로그인할 수 있어요.", style="yellow"), (0, 0, 0, 2)))
+    else:
+        console.print(f"[bold {agent['style']}]● {agent['label']}[/bold {agent['style']}]")
+        console.print(Padding(Markdown(result["output"]), (0, 0, 0, 2)))
     console.print()
 
 
 def run():
     previous_interaction_id = load_previous_interaction_id()
+    agent_mode = None
 
     print_welcome()
     if previous_interaction_id:
@@ -432,13 +488,46 @@ def run():
 
     while True:
         try:
-            user_input = console.input("[bold cyan]›[/bold cyan] ")
+            if agent_mode:
+                style = agent_cli.AGENTS[agent_mode]["style"]
+                user_input = console.input(f"[bold {style}]{agent_mode} ›[/bold {style}] ")
+            else:
+                user_input = console.input("[bold cyan]›[/bold cyan] ")
             stripped = user_input.strip()
 
             if not stripped:
                 continue
             if stripped == "종료":
                 break
+
+            if agent_mode:
+                if stripped in ("나가기", "돌아가기"):
+                    console.print(f"[dim]{ASSISTANT_NAME}로 돌아왔습니다.[/dim]\n")
+                    agent_mode = None
+                    continue
+                if stripped == "로그인":
+                    run_agent_login(agent_mode)
+                    continue
+                if stripped in ("상태", "로그인 상태"):
+                    print_agent_status(agent_mode)
+                    continue
+                ask_agent_and_print(agent_mode, stripped)
+                continue
+
+            entered = next(
+                (key for key in agent_cli.AGENTS if stripped in (f"{key} 모드", key)),
+                None,
+            )
+            if entered:
+                if not agent_cli.is_available(entered):
+                    console.print(
+                        f"[red]{agent_cli.AGENTS[entered]['label']} CLI가 설치돼 있지 않아 쓸 수 없습니다.[/red]\n"
+                    )
+                    continue
+                agent_mode = entered
+                enter_agent_mode(entered)
+                continue
+
             if stripped in ("도움말", "help"):
                 print_welcome()
                 continue
