@@ -11,8 +11,12 @@ import datetime
 import json
 import os
 
+import calculator
+import exchange
 import google_tasks
+import memo_storage
 import storage
+import weather
 
 # 카테고리는 고정 목록이 아니라 data/transactions.json에 저장되는 동적 목록이다.
 # (category_registration/Modification/Delete로 관리, storage.DEFAULT_CATEGORIES가 초기값)
@@ -28,10 +32,10 @@ def get_categories():
 _last_action = None
 
 
-def _save_snapshot(data):
-    """가계부 데이터 변경 직전 상태를 되돌리기용으로 기억한다."""
+def _save_snapshot(kind, data):
+    """로컬 저장소(가계부/메모) 데이터 변경 직전 상태를 되돌리기용으로 기억한다."""
     global _last_action
-    _last_action = {"kind": "budget", "snapshot": copy.deepcopy(data)}
+    _last_action = {"kind": kind, "snapshot": copy.deepcopy(data)}
 
 
 def _record_todo_undo(action):
@@ -59,7 +63,7 @@ def transaction_registration(category, amount=None, description=None, budget=Non
             "categories": data["categories"],
         }
 
-    _save_snapshot(data)
+    _save_snapshot("budget", data)
 
     transaction = None
     if amount is not None:
@@ -227,7 +231,7 @@ def transaction_Modification(id=None, category=None, date=None, amount=None, des
     if amount is not None and amount == 0:
         return {"error": "0원으로는 수정할 수 없습니다."}
 
-    _save_snapshot(data)
+    _save_snapshot("budget", data)
 
     if id is not None:
         if category is not None:
@@ -313,7 +317,7 @@ def transaction_Delete(id=None, category=None, date=None, query=None):
             }
         target = candidates[0]
 
-    _save_snapshot(data)
+    _save_snapshot("budget", data)
     data["transactions"].remove(target)
     storage.save_data(data)
     return {
@@ -565,7 +569,7 @@ def category_registration(category):
             "categories": data["categories"],
         }
 
-    _save_snapshot(data)
+    _save_snapshot("budget", data)
     data["categories"].append(category)
     storage.save_data(data)
     return {
@@ -603,7 +607,7 @@ def category_Modification(old_category, new_category):
     if new_category in data["categories"]:
         return {"message": f"'{new_category}'는 이미 존재하는 카테고리라 이름을 바꿀 수 없습니다."}
 
-    _save_snapshot(data)
+    _save_snapshot("budget", data)
     data["categories"] = [
         new_category if c == old_category else c for c in data["categories"]
     ]
@@ -656,7 +660,7 @@ def category_Delete(category):
     if category not in data["categories"]:
         return {"message": f"'{category}' 카테고리를 찾을 수 없어 삭제할 수 없습니다."}
 
-    _save_snapshot(data)
+    _save_snapshot("budget", data)
     data["categories"].remove(category)
     for tx in data["transactions"]:
         if tx["category"] == category:
@@ -707,6 +711,8 @@ def undo_last_action():
         kind = action["kind"]
         if kind == "budget":
             storage.save_data(action["snapshot"])
+        elif kind == "memo":
+            memo_storage.save_data(action["snapshot"])
         elif kind == "todo_create":
             google_tasks.delete_task(action["task_id"])
         elif kind == "todo_uncomplete":
@@ -729,8 +735,9 @@ undo_last_action_tool = {
     "type": "function",
     "name": "undo_last_action",
     "description": (
-        "가장 최근에 실행한 거래/카테고리 등록/수정/삭제, 또는 할일 등록/완료/삭제(완료 항목 일괄 정리 포함) "
-        "작업을 한 번 되돌린다. 연속으로 두 번 호출해도 한 단계만 되돌리며, 되돌릴 작업이 없으면 안내한다."
+        "가장 최근에 실행한 거래/카테고리 등록/수정/삭제, 할일 등록/완료/삭제(완료 항목 일괄 정리 포함), "
+        "또는 메모 등록/삭제 작업을 한 번 되돌린다. 연속으로 두 번 호출해도 한 단계만 되돌리며, "
+        "되돌릴 작업이 없으면 안내한다."
     ),
     "parameters": {
         "type": "object",
@@ -952,6 +959,296 @@ todo_clear_completed_tool = {
 }
 
 
+# ---------------------------------------------------------------------------
+# 13. memo_add / memo_search / memo_Delete
+# ---------------------------------------------------------------------------
+def memo_add(text, tags=None):
+    """짧은 메모를 저장한다. tags는 쉼표로 구분된 문자열."""
+    data = memo_storage.load_data()
+    _save_snapshot("memo", data)
+
+    memo = {
+        "id": data["next_id"],
+        "text": text,
+        "tags": [t.strip() for t in tags.split(",") if t.strip()] if tags else [],
+        "created_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+    }
+    data["memos"].append(memo)
+    data["next_id"] += 1
+    memo_storage.save_data(data)
+    return {"message": "메모를 저장했습니다.", "id": memo["id"], "text": memo["text"]}
+
+
+memo_add_tool = {
+    "type": "function",
+    "name": "memo_add",
+    "description": "짧은 메모를 저장한다.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "text": {"type": "string", "description": "메모 내용"},
+            "tags": {"type": "string", "description": "쉼표로 구분한 태그 (선택, 예: '아이디어,장보기')"},
+        },
+        "required": ["text"],
+    },
+}
+
+
+def memo_search(query=None, tag=None):
+    """메모를 조회한다. query가 있으면 내용에 포함된 메모만, tag가 있으면 해당 태그가 붙은 메모만 필터링한다."""
+    data = memo_storage.load_data()
+    memos = data["memos"]
+
+    if query is not None:
+        memos = [m for m in memos if query in m["text"]]
+    if tag is not None:
+        memos = [m for m in memos if tag in m["tags"]]
+
+    if not memos:
+        return {"message": "일치하는 메모를 찾을 수 없습니다."}
+    return memos
+
+
+memo_search_tool = {
+    "type": "function",
+    "name": "memo_search",
+    "description": "저장된 메모를 조회한다. query/tag는 모두 선택 입력이며 입력된 조건만 적용해 필터링한다.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "메모 내용에서 찾을 검색어 (선택)"},
+            "tag": {"type": "string", "description": "찾을 태그 (선택)"},
+        },
+        "required": [],
+    },
+}
+
+
+def memo_Delete(id=None, query=None):
+    """id 또는 내용 검색어로 찾은 메모를 삭제한다."""
+    data = memo_storage.load_data()
+
+    if id is not None:
+        target = next((m for m in data["memos"] if m["id"] == id), None)
+        if target is None:
+            return {"message": f"id {id}에 해당하는 메모를 찾을 수 없습니다."}
+    else:
+        if not query:
+            return {"message": "id가 없으면 검색어(query)가 있어야 메모를 찾을 수 있습니다."}
+        candidates = [m for m in data["memos"] if query in m["text"]]
+        if not candidates:
+            return {"message": "일치하는 메모를 찾을 수 없습니다."}
+        if len(candidates) > 1:
+            return {
+                "message": "조건에 맞는 메모가 여러 건이라 하나로 특정할 수 없습니다. 더 구체적으로 말씀해주세요.",
+                "candidates": candidates,
+            }
+        target = candidates[0]
+
+    _save_snapshot("memo", data)
+    data["memos"].remove(target)
+    memo_storage.save_data(data)
+    return {"message": f"메모('{target['text']}')를 삭제했습니다."}
+
+
+memo_Delete_tool = {
+    "type": "function",
+    "name": "memo_Delete",
+    "description": (
+        "메모를 삭제한다. id를 알고 있으면 id로, 모르면 query(내용 부분 일치)로 찾아 삭제한다. "
+        "조건에 맞는 메모가 여러 건이면 더 구체적인 정보를 요청한다."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "id": {"type": "integer", "description": "삭제할 메모의 id"},
+            "query": {"type": "string", "description": "id를 모를 때 내용으로 찾기 위한 검색어"},
+        },
+        "required": [],
+    },
+}
+
+
+# ---------------------------------------------------------------------------
+# 14. calc_split_bill / calc_dday / calc_age / calc_business_days
+# ---------------------------------------------------------------------------
+def calc_split_bill(total_amount, people_count):
+    """총액을 인원수로 나눠 1인당 낼 금액을 계산한다 (더치페이)."""
+    if people_count <= 0:
+        return {"error": "인원수는 1명 이상이어야 합니다."}
+
+    result = calculator.split_bill(total_amount, people_count)
+    if result["remainder"]:
+        message = (
+            f"1인당 {result['per_person']:,}원씩 내고, {result['remainder']}원은 나눠떨어지지 않아 "
+            "한두 명이 조금 더 부담해야 합니다."
+        )
+    else:
+        message = f"1인당 {result['per_person']:,}원씩 내면 됩니다."
+    return {**result, "total_amount": total_amount, "people_count": people_count, "message": message}
+
+
+calc_split_bill_tool = {
+    "type": "function",
+    "name": "calc_split_bill",
+    "description": "총액을 인원수로 나눠 더치페이 시 1인당 낼 금액을 계산한다.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "total_amount": {"type": "number", "description": "나눌 총 금액"},
+            "people_count": {"type": "integer", "description": "나눌 인원 수"},
+        },
+        "required": ["total_amount", "people_count"],
+    },
+}
+
+
+def calc_dday(target_date):
+    """오늘부터 target_date(YYYY-MM-DD)까지 남은(또는 지난) 일수를 계산한다."""
+    try:
+        days = calculator.dday(target_date)
+    except ValueError:
+        return {"error": "날짜 형식이 올바르지 않습니다. YYYY-MM-DD로 입력해주세요."}
+
+    if days > 0:
+        message = f"{target_date}까지 D-{days}일 남았습니다."
+    elif days == 0:
+        message = f"오늘이 {target_date}입니다 (D-Day)."
+    else:
+        message = f"{target_date}로부터 D+{-days}일 지났습니다."
+    return {"target_date": target_date, "days": days, "message": message}
+
+
+calc_dday_tool = {
+    "type": "function",
+    "name": "calc_dday",
+    "description": "오늘부터 특정 날짜까지 남은(또는 지난) 일수를 D-day 형식으로 계산한다.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "target_date": {"type": "string", "description": "기준 날짜 (YYYY-MM-DD)"},
+        },
+        "required": ["target_date"],
+    },
+}
+
+
+def calc_age(birth_date):
+    """생년월일(YYYY-MM-DD) 기준 만 나이를 계산한다."""
+    try:
+        result = calculator.age(birth_date)
+    except ValueError:
+        return {"error": "날짜 형식이 올바르지 않습니다. YYYY-MM-DD로 입력해주세요."}
+    return {"birth_date": birth_date, "age": result, "message": f"만 나이는 {result}세입니다."}
+
+
+calc_age_tool = {
+    "type": "function",
+    "name": "calc_age",
+    "description": "생년월일로 만 나이를 계산한다.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "birth_date": {"type": "string", "description": "생년월일 (YYYY-MM-DD)"},
+        },
+        "required": ["birth_date"],
+    },
+}
+
+
+def calc_business_days(start_date, end_date):
+    """start_date~end_date 사이의 평일(주말 제외) 일수를 계산한다. 공휴일은 반영하지 않는다."""
+    try:
+        count = calculator.business_days(start_date, end_date)
+    except ValueError:
+        return {"error": "날짜 형식이 올바르지 않습니다. YYYY-MM-DD로 입력해주세요."}
+    return {
+        "start_date": start_date,
+        "end_date": end_date,
+        "business_days": count,
+        "message": f"{start_date}부터 {end_date}까지 평일은 {count}일입니다 (공휴일은 반영되지 않음).",
+    }
+
+
+calc_business_days_tool = {
+    "type": "function",
+    "name": "calc_business_days",
+    "description": "두 날짜 사이의 평일(주말 제외) 일수를 계산한다. 공휴일은 반영하지 않는다.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "start_date": {"type": "string", "description": "시작 날짜 (YYYY-MM-DD)"},
+            "end_date": {"type": "string", "description": "끝 날짜 (YYYY-MM-DD)"},
+        },
+        "required": ["start_date", "end_date"],
+    },
+}
+
+
+# ---------------------------------------------------------------------------
+# 15. weather_check
+# ---------------------------------------------------------------------------
+def weather_check(city):
+    """도시 이름으로 현재 날씨를 조회한다."""
+    try:
+        info = weather.get_weather(city)
+    except Exception as e:
+        return {"error": f"날씨 조회에 실패했습니다: {e}"}
+
+    message = (
+        f"{city} 현재 {info['description']}, 기온 {info['temperature_c']}°C"
+        f"(체감 {info['feels_like_c']}°C), 습도 {info['humidity']}%"
+    )
+    return {"city": city, **info, "message": message}
+
+
+weather_check_tool = {
+    "type": "function",
+    "name": "weather_check",
+    "description": "도시 이름으로 현재 날씨(기온/체감온도/습도/날씨 상태)를 조회한다.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "city": {"type": "string", "description": "날씨를 조회할 도시 이름 (예: 'Seoul', 'Busan')"},
+        },
+        "required": ["city"],
+    },
+}
+
+
+# ---------------------------------------------------------------------------
+# 16. exchange_rate_check
+# ---------------------------------------------------------------------------
+def exchange_rate_check(base, target, amount=1):
+    """base 통화 amount만큼을 target 통화로 환전하면 얼마인지 조회한다 (예: USD -> KRW)."""
+    try:
+        result = exchange.get_rate(base, target, amount)
+    except Exception as e:
+        return {"error": f"환율 조회에 실패했습니다: {e}"}
+
+    message = f"{result['date']} 기준 {result['amount']} {result['base']} = {result['converted']:,} {result['target']}"
+    return {**result, "message": message}
+
+
+exchange_rate_check_tool = {
+    "type": "function",
+    "name": "exchange_rate_check",
+    "description": (
+        "한 통화(base)의 금액을 다른 통화(target)로 환전하면 얼마인지 조회한다. "
+        "통화는 ISO 코드로 입력한다 (예: USD, KRW, JPY, EUR)."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "base": {"type": "string", "description": "환전할 기준 통화 코드 (예: 'USD')"},
+            "target": {"type": "string", "description": "바꿀 대상 통화 코드 (예: 'KRW')"},
+            "amount": {"type": "number", "description": "환전할 금액 (기본값 1)"},
+        },
+        "required": ["base", "target"],
+    },
+}
+
+
 TOOLS = [
     transaction_registration_tool,
     transaction_search_tool,
@@ -969,6 +1266,15 @@ TOOLS = [
     todo_complete_tool,
     todo_Delete_tool,
     todo_clear_completed_tool,
+    memo_add_tool,
+    memo_search_tool,
+    memo_Delete_tool,
+    calc_split_bill_tool,
+    calc_dday_tool,
+    calc_age_tool,
+    calc_business_days_tool,
+    weather_check_tool,
+    exchange_rate_check_tool,
 ]
 
 FUNCTION_MAP = {
@@ -988,4 +1294,13 @@ FUNCTION_MAP = {
     "todo_complete": todo_complete,
     "todo_Delete": todo_Delete,
     "todo_clear_completed": todo_clear_completed,
+    "memo_add": memo_add,
+    "memo_search": memo_search,
+    "memo_Delete": memo_Delete,
+    "calc_split_bill": calc_split_bill,
+    "calc_dday": calc_dday,
+    "calc_age": calc_age,
+    "calc_business_days": calc_business_days,
+    "weather_check": weather_check,
+    "exchange_rate_check": exchange_rate_check,
 }

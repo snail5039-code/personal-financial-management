@@ -35,7 +35,8 @@ TODAY = datetime.datetime.now().strftime("%Y-%m-%d")
 SYSTEM_INSTRUCTION = (
     f"오늘 날짜는 {TODAY}입니다. 사용자가 '오늘', '어제', '이번 달'처럼 상대적인 날짜를 말하면 "
     "이 날짜를 기준으로 계산해서 도구 호출 시 날짜는 YYYY-MM-DD, 월은 YYYY-MM 형식으로 변환해서 넘기세요. "
-    "당신은 개인 거래 내역/예산과 할일(구글 할일 연동)을 관리해주는 에이전트입니다."
+    "당신은 개인 거래 내역/예산, 할일(구글 할일 연동), 메모를 관리하고 생활 계산(더치페이/D-day/만나이/근무일수), "
+    "날씨, 환율 조회까지 도와주는 개인비서 에이전트입니다."
 )
 
 
@@ -242,6 +243,16 @@ def render_todo_table(results):
     return table
 
 
+def render_memo_table(results):
+    table = flat_table()
+    table.add_column("메모")
+    table.add_column("태그", no_wrap=True)
+    table.add_column("등록일", no_wrap=True)
+    for m in results:
+        table.add_row(m["text"], ", ".join(m["tags"]), m["created_at"])
+    return table
+
+
 def render_tool_result(name, result):
     """검색/예산 조회 결과는 표로, 예산 전체 조회는 지출 비중 차트도 함께 보여준다. 해당 없으면 None."""
     if name == "transaction_search" and isinstance(result, list) and result:
@@ -255,6 +266,8 @@ def render_tool_result(name, result):
             return render_budget_table([result])
     if name == "todo_search" and isinstance(result, list) and result:
         return render_todo_table(result)
+    if name == "memo_search" and isinstance(result, list) and result:
+        return render_memo_table(result)
     return None
 
 
@@ -317,6 +330,9 @@ def print_welcome():
         ("월별 보고서", "8월 내역 정리해줘"),
         ("카테고리 관리", "차량 유지비 카테고리 추가해줘"),
         ("할일 관리", "우유 사야 돼 등록해줘 / 방금 그거 완료했어 / 완료된 거 정리해줘"),
+        ("메모", "발표자료 아이디어 메모해줘 / 아이디어 태그 메모 보여줘"),
+        ("생활 계산기", "3만원 4명이서 더치페이하면 얼마씩? / 크리스마스까지 며칠 남았어? / 2000년 1월 1일생 만나이"),
+        ("날씨/환율", "서울 날씨 어때? / 100달러면 원화로 얼마야?"),
     ]
     grid = Table.grid(padding=(0, 1, 0, 2))
     grid.add_column(style="cyan", no_wrap=True)
