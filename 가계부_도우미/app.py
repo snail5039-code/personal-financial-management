@@ -5,6 +5,7 @@
 """
 
 import datetime
+import itertools
 import json
 import os
 import sys
@@ -302,14 +303,40 @@ def execute_tool_call(step):
     }
 
 
-MASCOT = "\n".join([
-    "  ▄▄▄▄▄▄▄▄▄  ",
-    "▄█         █▄",
-    "██  >   <  ██",
-    "██    ﹏    ██",
-    "▀█         █▀",
-    "  ▀▀▀▀▀▀▀▀▀  ",
-])
+MASCOT_COLOR = "#c1654a"
+
+# 마스코트를 '선'이 아니라 '면'으로 그린다. 글자 대신 배경색을 칠해야 이미지처럼
+# 꽉 찬 실루엣이 나온다. B=몸통, >/<=눈, 공백=투명(배경 그대로).
+MASCOT_MAP = [
+    "    BBBBBBBBBBBBB    ",
+    "    BBBBBBBBBBBBB    ",
+    "BBBBBBB>BBBBB<BBBBBBB",
+    "BBBBBBBBBBBBBBBBBBBBB",
+    "    BBBBBBBBBBBBB    ",
+    "    BBBBBBBBBBBBB    ",
+    "    BBBB     BBBB    ",
+    "    BBBB     BBBB    ",
+]
+
+
+def render_mascot():
+    body = f"on {MASCOT_COLOR}"
+    eye = f"bold black on {MASCOT_COLOR}"
+
+    mascot = Text()
+    for row_index, row in enumerate(MASCOT_MAP):
+        if row_index:
+            mascot.append("\n")
+        # 같은 스타일이 이어지면 한 번에 붙여야 색 코드가 셀마다 반복되지 않는다.
+        for char, group in itertools.groupby(row):
+            run = "".join(group)
+            if char == "B":
+                mascot.append(" " * len(run), style=body)
+            elif char in "><":
+                mascot.append(run, style=eye)
+            else:
+                mascot.append(run)
+    return mascot
 
 HELP_SECTIONS = [
     ("가계부", [
@@ -376,7 +403,7 @@ def print_help_section(section):
 def print_welcome():
     console.rule(f"[bold]{ASSISTANT_NAME}[/bold]", style="cyan")
     console.print()
-    console.print(Align.center(Text(MASCOT, style="bold orange1")))
+    console.print(Align.center(render_mascot()))
     console.print(Align.center(Text(f"안녕하세요! 저는 '{ASSISTANT_NAME}'예요, 필요한 걸 편하게 말씀해주세요!", style="bold cyan")))
     console.print()
 
