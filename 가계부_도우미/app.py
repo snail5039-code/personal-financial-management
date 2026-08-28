@@ -99,11 +99,20 @@ def format_amount(amount):
     return Text(text, style=style)
 
 
+def flat_table():
+    """테두리 없는 표.
+
+    창을 줄이면 터미널이 이미 출력된 줄을 다시 접는데, 테두리가 있으면 프레임이
+    어긋나 크게 깨져 보인다. 테두리를 없애면 접혀도 그냥 줄바꿈으로만 보인다.
+    """
+    return Table(show_header=True, header_style="bold", box=None, pad_edge=False)
+
+
 def render_search_table(results):
-    table = Table(show_header=True, header_style="bold", border_style="dim")
-    table.add_column("카테고리")
-    table.add_column("날짜")
-    table.add_column("금액", justify="right")
+    table = flat_table()
+    table.add_column("카테고리", no_wrap=True)
+    table.add_column("날짜", no_wrap=True)
+    table.add_column("금액", justify="right", no_wrap=True)
     for tx in results:
         table.add_row(
             Text(tx["category"], style=category_style(tx["category"])),
@@ -121,20 +130,27 @@ def render_usage_bar(percent, over_budget, width=12):
     return Text(f"{bar} {percent:3.0f}%", style=style)
 
 
-def render_budget_table(results):
-    table = Table(show_header=True, header_style="bold", border_style="dim")
-    table.add_column("카테고리")
-    table.add_column("예산", justify="right")
-    table.add_column("사용금액", justify="right")
-    table.add_column("남은돈", justify="right")
-    table.add_column("사용률", width=17)
+def over_budget_caption(results):
+    """예산을 넘긴 카테고리가 있으면 경고 문구를, 없으면 None을 준다."""
+    names = [r["category"] for r in results if r["remaining_amount"] < 0]
+    return f"⚠ 예산 초과: {', '.join(names)}" if names else None
 
-    over_budget_categories = []
+
+# 테두리 없는 예산 표가 잘리지 않고 들어가는 최소 폭.
+BUDGET_TABLE_MIN_WIDTH = 64
+
+
+def render_budget_columns(results):
+    """폭이 넉넉할 때 쓰는 가로 표."""
+    table = flat_table()
+    table.add_column("카테고리", no_wrap=True)
+    table.add_column("예산", justify="right", no_wrap=True)
+    table.add_column("사용금액", justify="right", no_wrap=True)
+    table.add_column("남은돈", justify="right", no_wrap=True)
+    table.add_column("사용률", width=17, no_wrap=True)
+
     for row in results:
         over_budget = row["remaining_amount"] < 0
-        if over_budget:
-            over_budget_categories.append(row["category"])
-
         category_cell = Text(
             ("⚠ " if over_budget else "") + row["category"],
             style="bold red" if over_budget else category_style(row["category"]),
@@ -149,11 +165,46 @@ def render_budget_table(results):
             render_usage_bar(percent, over_budget),
         )
 
-    if over_budget_categories:
-        table.caption = f"⚠ 예산 초과: {', '.join(over_budget_categories)}"
+    caption = over_budget_caption(results)
+    if caption:
+        table.caption = caption
         table.caption_style = "bold red"
 
     return table
+
+
+def render_budget_stacked(results):
+    """폭이 좁을 때 쓰는 세로 목록. 한 줄이 35칸을 넘지 않아 창을 줄여도 접히지 않는다."""
+    body = Text()
+    for index, row in enumerate(results):
+        over_budget = row["remaining_amount"] < 0
+        percent = (row["used_amount"] / row["budget"] * 100) if row["budget"] else 0
+
+        if index:
+            body.append("\n")
+        body.append(
+            ("⚠ " if over_budget else "") + row["category"],
+            style="bold red" if over_budget else category_style(row["category"]),
+        )
+        body.append("  ")
+        body.append_text(render_usage_bar(percent, over_budget, width=10))
+        body.append(f"\n  예산 {row['budget']:,}원", style="dim")
+        body.append(f" · 사용 {row['used_amount']:,}원\n", style="dim")
+        body.append("  남은돈 ")
+        body.append_text(format_amount(row["remaining_amount"]))
+        body.append("\n")
+
+    caption = over_budget_caption(results)
+    if caption:
+        body.append(f"\n{caption}", style="bold red")
+
+    return body
+
+
+def render_budget_table(results):
+    if console.width >= BUDGET_TABLE_MIN_WIDTH:
+        return render_budget_columns(results)
+    return render_budget_stacked(results)
 
 
 def render_spending_share_chart(results):
@@ -163,7 +214,8 @@ def render_spending_share_chart(results):
     if total <= 0:
         return None
 
-    bar_width = 20
+    # 막대까지 합친 줄이 창 폭을 넘지 않도록 좁을 때는 막대를 줄인다.
+    bar_width = 20 if console.width >= 46 else 10
     body = Text()
     body.append("카테고리별 지출 비중\n", style="dim")
     for category, amount in sorted(spent, key=lambda x: x[1], reverse=True):
