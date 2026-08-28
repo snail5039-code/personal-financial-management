@@ -304,14 +304,16 @@ def execute_tool_call(step):
 
 
 MASCOT_COLOR = "#c1654a"
+MASCOT_EYE_COLOR = "#000000"
 
 # 마스코트를 '선'이 아니라 '면'으로 그린다. 글자 대신 배경색을 칠해야 이미지처럼
-# 꽉 찬 실루엣이 나온다. B=몸통, >/<=눈, 공백=투명(배경 그대로).
+# 꽉 찬 실루엣이 나온다. B=몸통, 공백=투명(배경 그대로), 그 외 문자=눈.
+# 눈은 반칸 블록(▀▄)을 두 줄에 걸쳐 엇갈리게 놓아 큼직한 > < 갈매기 모양을 만든다.
 MASCOT_MAP = [
     "    BBBBBBBBBBBBB    ",
     "    BBBBBBBBBBBBB    ",
-    "BBBBBBB>BBBBB<BBBBBBB",
-    "BBBBBBBBBBBBBBBBBBBBB",
+    "BBBBBBB▀▄BBB▄▀BBBBBBB",
+    "BBBBBBB▄▀BBB▀▄BBBBBBB",
     "    BBBBBBBBBBBBB    ",
     "    BBBBBBBBBBBBB    ",
     "    BBBB     BBBB    ",
@@ -321,7 +323,7 @@ MASCOT_MAP = [
 
 def render_mascot():
     body = f"on {MASCOT_COLOR}"
-    eye = f"bold black on {MASCOT_COLOR}"
+    eye = f"{MASCOT_EYE_COLOR} on {MASCOT_COLOR}"
 
     mascot = Text()
     for row_index, row in enumerate(MASCOT_MAP):
@@ -332,10 +334,10 @@ def render_mascot():
             run = "".join(group)
             if char == "B":
                 mascot.append(" " * len(run), style=body)
-            elif char in "><":
-                mascot.append(run, style=eye)
-            else:
+            elif char == " ":
                 mascot.append(run)
+            else:
+                mascot.append(run, style=eye)
     return mascot
 
 HELP_SECTIONS = [
