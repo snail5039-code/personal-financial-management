@@ -6,6 +6,7 @@
 3. TOOLS, FUNCTION_MAP에 등록한다.
 """
 
+import copy
 import datetime
 import json
 import os
@@ -19,6 +20,15 @@ import storage
 def get_categories():
     """현재 등록된 카테고리 목록을 반환한다."""
     return storage.load_data()["categories"]
+
+
+# 되돌리기(undo)용: 가장 최근 변경 직전 상태 스냅샷 1개만 보관한다.
+_last_snapshot = None
+
+
+def _save_snapshot(data):
+    global _last_snapshot
+    _last_snapshot = copy.deepcopy(data)
 
 
 # ---------------------------------------------------------------------------
@@ -40,6 +50,8 @@ def transaction_registration(category, amount=None, description=None, budget=Non
             ),
             "categories": data["categories"],
         }
+
+    _save_snapshot(data)
 
     transaction = None
     if amount is not None:
@@ -181,17 +193,11 @@ def transaction_Modification(id=None, category=None, date=None, amount=None, des
         target = next((tx for tx in data["transactions"] if tx["id"] == id), None)
         if target is None:
             return {"message": f"id {id}에 해당하는 거래를 찾을 수 없습니다."}
-        if category is not None:
-            if category not in data["categories"]:
-                return {
-                    "message": f"'{category}'는 존재하지 않는 카테고리라 변경할 수 없습니다.",
-                    "categories": data["categories"],
-                }
-            target["category"] = category
-        if date is not None:
-            target["date"] = date
-        if description is not None:
-            target["description"] = description
+        if category is not None and category not in data["categories"]:
+            return {
+                "message": f"'{category}'는 존재하지 않는 카테고리라 변경할 수 없습니다.",
+                "categories": data["categories"],
+            }
     else:
         if category is None and date is None and description is None:
             return {"message": "id가 없으면 카테고리, 날짜, 설명 중 하나는 알려줘야 거래를 찾을 수 있습니다."}
@@ -210,9 +216,19 @@ def transaction_Modification(id=None, category=None, date=None, amount=None, des
             }
         target = candidates[0]
 
+    if amount is not None and amount == 0:
+        return {"error": "0원으로는 수정할 수 없습니다."}
+
+    _save_snapshot(data)
+
+    if id is not None:
+        if category is not None:
+            target["category"] = category
+        if date is not None:
+            target["date"] = date
+        if description is not None:
+            target["description"] = description
     if amount is not None:
-        if amount == 0:
-            return {"error": "0원으로는 수정할 수 없습니다."}
         target["amount"] = amount
 
     storage.save_data(data)
@@ -289,6 +305,7 @@ def transaction_Delete(id=None, category=None, date=None, query=None):
             }
         target = candidates[0]
 
+    _save_snapshot(data)
     data["transactions"].remove(target)
     storage.save_data(data)
     return {
@@ -540,6 +557,7 @@ def category_registration(category):
             "categories": data["categories"],
         }
 
+    _save_snapshot(data)
     data["categories"].append(category)
     storage.save_data(data)
     return {
@@ -577,6 +595,7 @@ def category_Modification(old_category, new_category):
     if new_category in data["categories"]:
         return {"message": f"'{new_category}'는 이미 존재하는 카테고리라 이름을 바꿀 수 없습니다."}
 
+    _save_snapshot(data)
     data["categories"] = [
         new_category if c == old_category else c for c in data["categories"]
     ]
@@ -629,6 +648,7 @@ def category_Delete(category):
     if category not in data["categories"]:
         return {"message": f"'{category}' 카테고리를 찾을 수 없어 삭제할 수 없습니다."}
 
+    _save_snapshot(data)
     data["categories"].remove(category)
     for tx in data["transactions"]:
         if tx["category"] == category:
@@ -662,6 +682,36 @@ category_Delete_tool = {
 }
 
 
+# ---------------------------------------------------------------------------
+# 11. undo_last_action
+# ---------------------------------------------------------------------------
+def undo_last_action():
+    """가장 최근에 실행된 거래/카테고리 등록·수정·삭제 작업 한 건을 되돌린다."""
+    global _last_snapshot
+
+    if _last_snapshot is None:
+        return {"message": "되돌릴 작업이 없습니다."}
+
+    storage.save_data(_last_snapshot)
+    _last_snapshot = None
+    return {"message": "방금 작업을 되돌렸습니다."}
+
+
+undo_last_action_tool = {
+    "type": "function",
+    "name": "undo_last_action",
+    "description": (
+        "가장 최근에 실행한 거래 등록/수정/삭제 또는 카테고리 등록/수정/삭제 작업을 한 번 되돌린다. "
+        "연속으로 두 번 호출해도 한 단계만 되돌리며, 되돌릴 작업이 없으면 안내한다."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+    },
+}
+
+
 TOOLS = [
     transaction_registration_tool,
     transaction_search_tool,
@@ -673,6 +723,7 @@ TOOLS = [
     category_registration_tool,
     category_Modification_tool,
     category_Delete_tool,
+    undo_last_action_tool,
 ]
 
 FUNCTION_MAP = {
@@ -686,4 +737,5 @@ FUNCTION_MAP = {
     "category_registration": category_registration,
     "category_Modification": category_Modification,
     "category_Delete": category_Delete,
+    "undo_last_action": undo_last_action,
 }

@@ -50,6 +50,37 @@ def create_interaction(input_data, previous_interaction_id):
     )
 
 
+SESSION_PATH = os.path.join(THIS_DIR, "data", "session.json")
+
+
+def load_previous_interaction_id():
+    """지난 실행에서 남겨둔 previous_interaction_id를 불러온다 (없거나 손상되면 None)."""
+    if not os.path.exists(SESSION_PATH):
+        return None
+    try:
+        with open(SESSION_PATH, "r", encoding="utf-8") as f:
+            return json.load(f).get("previous_interaction_id")
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def save_previous_interaction_id(interaction_id):
+    os.makedirs(os.path.dirname(SESSION_PATH), exist_ok=True)
+    with open(SESSION_PATH, "w", encoding="utf-8") as f:
+        json.dump({"previous_interaction_id": interaction_id}, f)
+
+
+def safe_create_interaction(input_data, previous_interaction_id):
+    """previous_interaction_id가 만료/무효화됐을 경우 새 대화로 한 번 재시도한다."""
+    try:
+        return create_interaction(input_data, previous_interaction_id)
+    except Exception:
+        if previous_interaction_id is None:
+            raise
+        console.print("[dim]이전 대화를 이어갈 수 없어 새로 시작합니다.[/dim]")
+        return create_interaction(input_data, None)
+
+
 def format_args(args):
     return ", ".join(f"{k}={v!r}" for k, v in args.items())
 
@@ -82,29 +113,79 @@ def render_search_table(results):
     return table
 
 
+def render_usage_bar(percent, over_budget, width=12):
+    """예산 사용률(%)을 직접 문자열로 그린 막대로 보여준다."""
+    filled = min(round(percent / 100 * width), width) if percent > 0 else 0
+    bar = "█" * filled + "░" * (width - filled)
+    style = "red" if over_budget else "green"
+    return Text(f"{bar} {percent:3.0f}%", style=style)
+
+
 def render_budget_table(results):
     table = Table(show_header=True, header_style="bold", border_style="dim")
     table.add_column("카테고리")
     table.add_column("예산", justify="right")
     table.add_column("사용금액", justify="right")
     table.add_column("남은돈", justify="right")
+    table.add_column("사용률", width=17)
+
+    over_budget_categories = []
     for row in results:
+        over_budget = row["remaining_amount"] < 0
+        if over_budget:
+            over_budget_categories.append(row["category"])
+
+        category_cell = Text(
+            ("⚠ " if over_budget else "") + row["category"],
+            style="bold red" if over_budget else category_style(row["category"]),
+        )
+        percent = (row["used_amount"] / row["budget"] * 100) if row["budget"] else 0
+
         table.add_row(
-            Text(row["category"], style=category_style(row["category"])),
+            category_cell,
             f"{row['budget']:,}원",
             format_amount(row["used_amount"]),
             format_amount(row["remaining_amount"]),
+            render_usage_bar(percent, over_budget),
         )
+
+    if over_budget_categories:
+        table.caption = f"⚠ 예산 초과: {', '.join(over_budget_categories)}"
+        table.caption_style = "bold red"
+
     return table
 
 
+def render_spending_share_chart(results):
+    """카테고리별 지출이 전체 지출에서 차지하는 비중을 막대그래프로 보여준다."""
+    spent = [(r["category"], max(r["used_amount"], 0)) for r in results]
+    total = sum(amount for _, amount in spent)
+    if total <= 0:
+        return None
+
+    bar_width = 20
+    body = Text()
+    for category, amount in sorted(spent, key=lambda x: x[1], reverse=True):
+        share = amount / total
+        filled = round(share * bar_width)
+        bar = "█" * filled + "░" * (bar_width - filled)
+        style = category_style(category)
+        body.append(f"{category:8s} ", style=style)
+        body.append(f"{bar} ", style=style)
+        body.append(f"{share * 100:4.1f}%\n", style="dim")
+
+    return Panel(body, title="[dim]카테고리별 지출 비중[/dim]", border_style="dim", padding=(0, 1))
+
+
 def render_tool_result(name, result):
-    """검색/예산 조회 결과는 표로 보기 좋게 그려준다. 해당 없으면 None."""
+    """검색/예산 조회 결과는 표로, 예산 전체 조회는 지출 비중 차트도 함께 보여준다. 해당 없으면 None."""
     if name == "transaction_search" and isinstance(result, list) and result:
         return render_search_table(result)
     if name == "transaction_Budget_Management":
         if isinstance(result, list) and result:
-            return render_budget_table(result)
+            chart = render_spending_share_chart(result)
+            table = render_budget_table(result)
+            return Group(table, chart) if chart else table
         if isinstance(result, dict) and "remaining_amount" in result:
             return render_budget_table([result])
     return None
@@ -160,6 +241,7 @@ def print_welcome():
         ("검색", "이번 달 식비 내역 보여줘"),
         ("수정", "어제 그 거래 7천원으로 바꿔줘"),
         ("삭제", "방금 등록한 거 지워줘"),
+        ("되돌리기", "방금 그거 취소해줘"),
         ("예산 조회", "지금 예산 얼마 남았어?"),
         ("JSON 저장", "이번 달 거래 내역 json으로 저장해줘"),
         ("월별 보고서", "8월 내역 정리해줘"),
@@ -169,7 +251,7 @@ def print_welcome():
         body.append(f"  • {label:10s}", style="cyan")
         body.append(f" {example}\n", style="dim")
     body.append(f"\n현재 카테고리: {categories}\n", style="dim")
-    body.append("'종료'를 입력하면 끝납니다.", style="dim italic")
+    body.append("'도움말'로 이 안내를 다시 보고, '새 대화'로 대화를 초기화하고, '종료'로 끝냅니다.", style="dim italic")
 
     console.print(
         Panel(
@@ -184,22 +266,34 @@ def print_welcome():
 
 
 def run():
-    previous_interaction_id = None
+    previous_interaction_id = load_previous_interaction_id()
 
     print_welcome()
+    if previous_interaction_id:
+        console.print("[dim]지난 대화를 이어서 기억하고 있어요. 새로 시작하려면 '새 대화'라고 말해주세요.[/dim]\n")
 
     while True:
         try:
             user_input = console.input("[bold cyan]›[/bold cyan] ")
+            stripped = user_input.strip()
 
-            if not user_input.strip():
+            if not stripped:
                 continue
-            if user_input.strip() == "종료":
+            if stripped == "종료":
                 break
+            if stripped in ("도움말", "help"):
+                print_welcome()
+                continue
+            if stripped in ("새 대화", "초기화"):
+                previous_interaction_id = None
+                save_previous_interaction_id(None)
+                console.print("[dim]대화를 새로 시작합니다.[/dim]\n")
+                continue
 
             with console.status("[dim]생각하는 중...[/dim]", spinner="dots"):
-                interaction = create_interaction(user_input, previous_interaction_id)
+                interaction = safe_create_interaction(user_input, previous_interaction_id)
             previous_interaction_id = interaction.id
+            save_previous_interaction_id(previous_interaction_id)
 
             while True:
                 call_steps = [s for s in interaction.steps if s.type == "function_call"]
@@ -207,8 +301,9 @@ def run():
                 if call_steps:
                     function_results = [execute_tool_call(step) for step in call_steps]
                     with console.status("[dim]생각하는 중...[/dim]", spinner="dots"):
-                        interaction = create_interaction(function_results, interaction.id)
+                        interaction = safe_create_interaction(function_results, interaction.id)
                     previous_interaction_id = interaction.id
+                    save_previous_interaction_id(previous_interaction_id)
                 else:
                     console.print(
                         Panel(
