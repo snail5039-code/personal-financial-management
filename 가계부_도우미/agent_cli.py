@@ -24,11 +24,17 @@ AGENTS = {
     "클로드": {
         "label": "클로드",
         "executable": "claude",
-        "first_args": ["{perm}", "--session-id", "{session}", "-p"],
-        "next_args": ["{perm}", "--resume", "{session}", "-p"],
+        # --output-format json으로 받으면 답변과 함께 토큰/비용/모델이 같이 온다.
+        "first_args": ["{perm}", "{model}", "--session-id", "{session}", "-p",
+                       "--output-format", "json"],
+        "next_args": ["{perm}", "{model}", "--resume", "{session}", "-p",
+                      "--output-format", "json"],
         # 기본값이 이미 쓰기를 막으므로 읽기 전용에는 따로 줄 인자가 없다.
         "read_args": [],
         "write_args": ["--permission-mode", "acceptEdits"],
+        "model_flag": "--model",
+        "model_examples": ["opus", "sonnet", "haiku", "fable"],
+        "json_output": True,
         "login_args": ["auth", "login"],
         "status_args": ["auth", "status"],
         "style": "bright_magenta",
@@ -36,11 +42,16 @@ AGENTS = {
     "코덱스": {
         "label": "코덱스",
         "executable": "codex",
-        "first_args": ["exec", "{perm}"],
+        "first_args": ["exec", "{perm}", "{model}"],
+        # exec resume은 --sandbox/-m을 받지 않는다.
         "next_args": ["exec", "resume", "--last"],
         "read_args": ["--sandbox", "read-only"],
         # workspace-write는 작업 폴더 안에서만 쓰기를 허용한다.
         "write_args": ["--sandbox", "workspace-write"],
+        "model_flag": "--model",
+        "model_examples": ["gpt-5-codex", "o3"],
+        # 코덱스의 --json은 이벤트 스트림(JSONL)이라 지금은 쓰지 않는다.
+        "json_output": False,
         "login_args": ["login"],
         "status_args": ["login", "status"],
         "style": "bright_green",
@@ -148,7 +159,7 @@ def new_session_id():
     return str(uuid.uuid4())
 
 
-def _build_args(agent, is_first, session_id, allow_write):
+def _build_args(agent, is_first, session_id, allow_write, model=None):
     template = agent["first_args"] if is_first else agent["next_args"]
     perm = agent["write_args"] if allow_write else agent["read_args"]
 
@@ -156,6 +167,9 @@ def _build_args(agent, is_first, session_id, allow_write):
     for part in template:
         if part == "{perm}":
             args.extend(perm)
+        elif part == "{model}":
+            if model:
+                args.extend([agent["model_flag"], model])
         elif part == "{session}":
             args.append(session_id or "")
         else:
@@ -163,13 +177,45 @@ def _build_args(agent, is_first, session_id, allow_write):
     return args
 
 
+def _parse_json_result(stdout):
+    """claude --output-format json 응답에서 답변과 사용량을 뽑는다."""
+    data = json.loads(stdout)
+
+    if data.get("is_error"):
+        return {"error": data.get("result") or "알 수 없는 오류가 발생했습니다."}
+
+    # modelUsage는 {"claude-opus-5[1m]": {...}} 형태라 첫 항목을 쓴다.
+    model_usage = data.get("modelUsage") or {}
+    model_key = next(iter(model_usage), None)
+    info = model_usage.get(model_key, {}) if model_key else {}
+    usage = data.get("usage") or {}
+
+    sent = (
+        usage.get("input_tokens", 0)
+        + usage.get("cache_read_input_tokens", 0)
+        + usage.get("cache_creation_input_tokens", 0)
+    )
+    return {
+        "output": (data.get("result") or "").strip() or "(빈 응답)",
+        "stats": {
+            "model": info.get("canonicalModel") or model_key or "알 수 없음",
+            "sent_tokens": sent,
+            "output_tokens": usage.get("output_tokens", 0),
+            "cost_usd": data.get("total_cost_usd") or 0.0,
+            "context_window": info.get("contextWindow"),
+            "duration_ms": data.get("duration_ms") or 0,
+        },
+    }
+
+
 def ask_agent(agent_key, prompt, cwd=None, timeout=600, session_id=None, is_first=True,
-              allow_write=False):
+              allow_write=False, model=None):
     """CLI에 프롬프트를 넘기고 답변을 받아온다.
 
     session_id와 is_first를 넘기면 같은 대화를 이어간다(앞선 질문을 기억한다).
     allow_write가 True면 CLI가 작업 폴더의 파일을 직접 고칠 수 있다.
-    성공하면 {"output": ...}, 실패하면 {"error": ...}를 준다.
+    성공하면 {"output": ..., "stats": {...}}, 실패하면 {"error": ...}를 준다.
+    (stats는 사용량을 주는 CLI에서만 들어있다.)
     """
     agent = AGENTS[agent_key]
     executable = shutil.which(agent["executable"])
@@ -181,7 +227,7 @@ def ask_agent(agent_key, prompt, cwd=None, timeout=600, session_id=None, is_firs
             )
         }
 
-    args = _build_args(agent, is_first, session_id, allow_write)
+    args = _build_args(agent, is_first, session_id, allow_write, model)
 
     try:
         result = subprocess.run(
@@ -207,6 +253,13 @@ def ask_agent(agent_key, prompt, cwd=None, timeout=600, session_id=None, is_firs
     if result.returncode != 0:
         # 로그인 만료/사용량 초과 같은 안내가 stderr로 오므로 그대로 보여준다.
         return {"error": _clean_output(stderr or stdout, prompt) or "알 수 없는 오류가 발생했습니다."}
+
+    if agent["json_output"]:
+        try:
+            return _parse_json_result(stdout)
+        except (json.JSONDecodeError, TypeError):
+            # JSON이 아니면 평문으로 온 것이므로 그대로 보여준다.
+            pass
 
     # codex는 답변을 stderr로 내보내기도 해서 stdout이 비면 stderr를 쓴다.
     answer = _clean_output(stdout or stderr, prompt)

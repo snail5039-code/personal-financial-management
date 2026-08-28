@@ -440,19 +440,48 @@ def print_welcome():
 AGENT_WORKDIR = os.getcwd()
 
 
+AGENT_COMMANDS = [
+    ("쓰기 허용", "파일을 직접 고칠 수 있게 함 (기본은 읽기 전용)"),
+    ("쓰기 잠금", "다시 읽기 전용으로"),
+    ("모델 <이름>", "쓸 모델 지정 (예: 모델 opus)"),
+    ("사용량", "이 대화에서 쓴 토큰·비용 보기"),
+    ("새 대화", "기억 초기화하고 처음부터"),
+    ("로그인", "계정 로그인 (브라우저가 열림)"),
+    ("상태", "로그인 상태 확인"),
+    ("도움말", "이 목록 다시 보기"),
+    ("나가기", "커리마로 돌아가기"),
+]
+
+
+def print_agent_help(agent_key):
+    agent = agent_cli.AGENTS[agent_key]
+    grid = Table.grid(padding=(0, 1, 0, 2))
+    grid.add_column(style="cyan", no_wrap=True)
+    grid.add_column(style="dim")
+    for command, description in AGENT_COMMANDS:
+        grid.add_row(f"• {command}", description)
+    console.print(grid)
+    console.print(
+        f"\n그 외에 입력하는 말은 전부 {agent['label']}에게 질문으로 전달됩니다.",
+        style="dim italic",
+    )
+    console.print(f"쓸 수 있는 모델 예: {', '.join(agent['model_examples'])}", style="dim italic")
+    console.print()
+
+
 def enter_agent_mode(agent_key):
     """외부 CLI 모드로 들어갈 때의 안내를 보여준다."""
     agent = agent_cli.AGENTS[agent_key]
     console.rule(f"[bold]{agent['label']} 모드[/bold]", style=agent["style"])
-    console.print(f"이제 입력하시는 내용은 {agent['label']}에게 그대로 전달됩니다.", style=agent["style"])
-    # 이 CLI들은 파일을 읽고 고칠 수 있으므로 어느 폴더에서 도는지 분명히 알린다.
-    console.print(f"작업 폴더: {AGENT_WORKDIR}", style="dim")
-    console.print("앞선 질문을 기억하니 이어서 물어보셔도 됩니다.", style="dim")
-    console.print("지금은 읽기 전용입니다. 파일을 고치게 하려면 '쓰기 허용'.", style="dim")
     console.print(
-        "'로그인' / '상태'로 계정 관리, '새 대화'로 기억 초기화, '나가기'로 커리마 복귀.\n",
-        style="dim italic",
+        f"입력하시는 말이 {agent['label']}에게 전달되고, 답변이 여기 표시됩니다.",
+        style=agent["style"],
     )
+    console.print("앞선 질문을 기억하므로 이어서 물어보셔도 됩니다.\n", style=agent["style"])
+    # 이 CLI들은 파일을 읽고 고칠 수 있으므로 어느 폴더에서 도는지 분명히 알린다.
+    console.print(f"작업 폴더  {AGENT_WORKDIR}", style="dim")
+    console.print("권한      읽기 전용 (파일을 고치지 않습니다)\n", style="dim")
+    print_agent_help(agent_key)
 
 
 # 로그인이 풀렸을 때 CLI가 내는 문구들. 감지되면 로그인하라고 안내한다.
@@ -479,12 +508,65 @@ def print_agent_status(agent_key):
     console.print()
 
 
-def new_agent_session(allow_write=False):
-    return {"id": agent_cli.new_session_id(), "started": False, "allow_write": allow_write}
+def new_agent_session(allow_write=False, model=None):
+    return {
+        "id": agent_cli.new_session_id(),
+        "started": False,
+        "allow_write": allow_write,
+        "model": model,
+        # 이 대화에서 쓴 누적량. CLI가 사용량을 줄 때만 쌓인다.
+        "calls": 0,
+        "cost_usd": 0.0,
+        "output_tokens": 0,
+        "last": None,
+    }
+
+
+def _format_tokens(count):
+    return f"{count / 1000:.1f}k" if count >= 1000 else str(count)
+
+
+def print_agent_usage(agent_key, session):
+    agent = agent_cli.AGENTS[agent_key]
+    console.print(f"[bold {agent['style']}]● 사용량[/bold {agent['style']}]")
+
+    if not session["calls"]:
+        console.print(Padding(Text("아직 질문한 내역이 없습니다.", style="dim"), (0, 0, 0, 2)))
+        console.print()
+        return
+
+    grid = Table.grid(padding=(0, 1, 0, 2))
+    grid.add_column(style="cyan", no_wrap=True)
+    grid.add_column()
+
+    last = session["last"]
+    if last:
+        grid.add_row("모델", last["model"])
+        window = last.get("context_window")
+        if window:
+            share = last["sent_tokens"] / window * 100
+            grid.add_row(
+                "컨텍스트",
+                f"{_format_tokens(last['sent_tokens'])} / {_format_tokens(window)} ({share:.1f}%)",
+            )
+    grid.add_row("질문 수", f"{session['calls']}회")
+    grid.add_row("생성 토큰", _format_tokens(session["output_tokens"]))
+    grid.add_row("누적 비용", f"${session['cost_usd']:.4f}")
+    console.print(Padding(grid, (0, 0, 0, 2)))
+
+    # 5시간/주간 한도는 CLI로 조회할 수 없어서 솔직히 안내한다.
+    console.print(
+        Padding(
+            Text("구독 한도(5시간·주간)는 CLI로 볼 수 없어요. 클로드를 직접 실행해 /usage로 확인하세요.",
+                 style="dim italic"),
+            (1, 0, 0, 2),
+        )
+    )
+    console.print()
 
 
 def ask_agent_and_print(agent_key, prompt, session):
-    """session은 {"id", "started", "allow_write"}. 첫 질문 이후로는 대화를 이어간다."""
+    """session은 대화 상태(id/권한/모델/누적 사용량)를 담는다."""
     agent = agent_cli.AGENTS[agent_key]
     with console.status(f"[dim]{agent['label']}에게 물어보는 중...[/dim]", spinner="dots"):
         result = agent_cli.ask_agent(
@@ -494,19 +576,32 @@ def ask_agent_and_print(agent_key, prompt, session):
             session_id=session["id"],
             is_first=not session["started"],
             allow_write=session["allow_write"],
+            model=session["model"],
         )
-
-    if "error" not in result:
-        session["started"] = True
 
     if "error" in result:
         console.print(f"[bold red]● {agent['label']} 오류[/bold red]")
         console.print(Padding(Text(result["error"], style="red"), (0, 0, 0, 2)))
         if any(hint in result["error"].lower() for hint in AUTH_ERROR_HINTS):
             console.print(Padding(Text("'로그인'이라고 입력하면 바로 로그인할 수 있어요.", style="yellow"), (0, 0, 0, 2)))
-    else:
-        console.print(f"[bold {agent['style']}]● {agent['label']}[/bold {agent['style']}]")
-        console.print(Padding(Markdown(result["output"]), (0, 0, 0, 2)))
+        console.print()
+        return
+
+    session["started"] = True
+    console.print(f"[bold {agent['style']}]● {agent['label']}[/bold {agent['style']}]")
+    console.print(Padding(Markdown(result["output"]), (0, 0, 0, 2)))
+
+    stats = result.get("stats")
+    if stats:
+        session["calls"] += 1
+        session["cost_usd"] += stats["cost_usd"]
+        session["output_tokens"] += stats["output_tokens"]
+        session["last"] = stats
+        summary = (
+            f"{stats['model']} · 컨텍스트 {_format_tokens(stats['sent_tokens'])}"
+            f" · ${stats['cost_usd']:.4f} · {stats['duration_ms'] / 1000:.1f}초"
+        )
+        console.print(Padding(Text(summary, style="dim"), (0, 0, 0, 2)))
     console.print()
 
 
@@ -550,13 +645,33 @@ def run():
                 if stripped in ("상태", "로그인 상태"):
                     print_agent_status(agent_mode)
                     continue
+                if stripped in ("도움말", "help"):
+                    print_agent_help(agent_mode)
+                    continue
+                if stripped == "사용량":
+                    print_agent_usage(agent_mode, agent_session)
+                    continue
                 if stripped in ("새 대화", "초기화"):
-                    agent_session = new_agent_session(agent_session["allow_write"])
+                    agent_session = new_agent_session(
+                        agent_session["allow_write"], agent_session["model"]
+                    )
+                    console.print("[dim]새 대화로 시작합니다.[/dim]\n")
+                    continue
+                if stripped.startswith("모델"):
+                    model = stripped[len("모델"):].strip()
+                    if not model:
+                        current = agent_session["model"] or "기본값"
+                        examples = ", ".join(agent_cli.AGENTS[agent_mode]["model_examples"])
+                        console.print(f"[dim]현재 모델: {current} (예: {examples})[/dim]\n")
+                        continue
+                    # 모델도 세션 시작 때 정해지므로 대화를 새로 연다.
+                    agent_session = new_agent_session(agent_session["allow_write"], model)
+                    console.print(f"[green]모델을 '{model}'(으)로 바꿨습니다.[/green]")
                     console.print("[dim]새 대화로 시작합니다.[/dim]\n")
                     continue
                 if stripped in ("쓰기 허용", "쓰기허용"):
                     # 코덱스는 권한이 세션 시작 때 고정돼서, 대화를 새로 열어야 실제로 반영된다.
-                    agent_session = new_agent_session(allow_write=True)
+                    agent_session = new_agent_session(True, agent_session["model"])
                     console.print(
                         "[bold yellow]⚠ 이제 파일을 직접 수정합니다. "
                         "되돌리려면 git을 쓰세요 (git diff / git checkout -- .)[/bold yellow]"
@@ -564,7 +679,7 @@ def run():
                     console.print("[dim]권한이 바뀌어 새 대화로 시작합니다.[/dim]\n")
                     continue
                 if stripped in ("쓰기 잠금", "쓰기잠금", "읽기 전용"):
-                    agent_session = new_agent_session(allow_write=False)
+                    agent_session = new_agent_session(False, agent_session["model"])
                     console.print("[green]읽기 전용으로 돌아왔습니다.[/green]")
                     console.print("[dim]권한이 바뀌어 새 대화로 시작합니다.[/dim]\n")
                     continue
