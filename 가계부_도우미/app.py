@@ -445,6 +445,7 @@ AGENT_COMMANDS = [
     ("쓰기 잠금", "다시 읽기 전용으로"),
     ("모델 <이름>", "쓸 모델 지정 (예: 모델 opus)"),
     ("사용량", "이 대화에서 쓴 토큰·비용 보기"),
+    ("한도", "구독 한도(5시간·주간) 확인 — CLI를 잠깐 띄웁니다"),
     ("새 대화", "기억 초기화하고 처음부터"),
     ("로그인", "계정 로그인 (브라우저가 열림)"),
     ("상태", "로그인 상태 확인"),
@@ -526,9 +527,56 @@ def _format_tokens(count):
     return f"{count / 1000:.1f}k" if count >= 1000 else str(count)
 
 
+def _short_model(name):
+    """프롬프트에 넣기 좋게 줄인다 (claude-opus-5 -> opus-5)."""
+    return name.removeprefix("claude-") if name else name
+
+
+def current_model_label(session):
+    """실제로 쓰인 모델을 우선 보여준다.
+
+    지정하지 않으면 CLI가 알아서 고르기 때문에, 한 번이라도 답을 받았으면
+    그때 실제로 쓰인 모델이 지정값보다 정확하다.
+    """
+    used = (session["last"] or {}).get("model")
+    if used:
+        return _short_model(used)
+    if session["model"]:
+        return session["model"]
+    return None
+
+
+def agent_prompt(agent_mode, session):
+    agent = agent_cli.AGENTS[agent_mode]
+    parts = [p for p in (current_model_label(session),) if p]
+    if session["allow_write"]:
+        parts.append("쓰기")
+
+    suffix = f"[{'·'.join(parts)}]" if parts else ""
+    # 쓰기가 켜져 있으면 색까지 바꿔서 모르고 쓰는 일이 없게 한다.
+    style = "yellow" if session["allow_write"] else agent["style"]
+    return f"[bold {style}]{agent_mode}{suffix} ›[/bold {style}] "
+
+
 def print_agent_usage(agent_key, session):
     agent = agent_cli.AGENTS[agent_key]
     console.print(f"[bold {agent['style']}]● 사용량[/bold {agent['style']}]")
+
+    # 사용량을 아예 안 주는 CLI라면 그 사실부터 밝힌다.
+    # (안 그러면 질문을 했는데도 "내역이 없다"고 나와 오해하기 쉽다.)
+    if not agent["json_output"]:
+        console.print(
+            Padding(
+                Text(
+                    f"{agent['label']}는 토큰·비용 정보를 주지 않아 여기서 집계할 수 없습니다.\n"
+                    f"'한도'를 입력하면 {agent['label']}를 직접 띄워 확인할 수 있어요.",
+                    style="dim",
+                ),
+                (0, 0, 0, 2),
+            )
+        )
+        console.print()
+        return
 
     if not session["calls"]:
         console.print(Padding(Text("아직 질문한 내역이 없습니다.", style="dim"), (0, 0, 0, 2)))
@@ -554,15 +602,31 @@ def print_agent_usage(agent_key, session):
     grid.add_row("누적 비용", f"${session['cost_usd']:.4f}")
     console.print(Padding(grid, (0, 0, 0, 2)))
 
-    # 5시간/주간 한도는 CLI로 조회할 수 없어서 솔직히 안내한다.
+    # 5시간/주간 한도는 비대화형 호출로는 못 받아온다. '한도'로 우회한다.
     console.print(
         Padding(
-            Text("구독 한도(5시간·주간)는 CLI로 볼 수 없어요. 클로드를 직접 실행해 /usage로 확인하세요.",
+            Text("구독 한도(5시간·주간)는 여기서 못 봅니다. '한도'를 입력하면 확인할 수 있어요.",
                  style="dim italic"),
             (1, 0, 0, 2),
         )
     )
     console.print()
+
+
+def show_agent_limits(agent_key):
+    """플랜 한도를 보려고 CLI를 대화형으로 잠깐 띄운다."""
+    agent = agent_cli.AGENTS[agent_key]
+    command = agent["limit_command"]
+    console.print(
+        f"[dim]{agent['label']}를 띄웁니다. [bold]{command}[/bold] 를 입력해 한도를 확인하고, "
+        f"끝나면 종료해서 커리마로 돌아오세요.[/dim]\n"
+    )
+    result = agent_cli.run_interactive(agent_key)
+    console.print()
+    if "error" in result:
+        console.print(f"[red]{result['error']}[/red]\n")
+    else:
+        console.print(f"[dim]{result['output']}[/dim]\n")
 
 
 def ask_agent_and_print(agent_key, prompt, session):
@@ -617,13 +681,7 @@ def run():
     while True:
         try:
             if agent_mode:
-                style = agent_cli.AGENTS[agent_mode]["style"]
-                # 쓰기가 켜져 있으면 프롬프트에 표시해서 모르고 쓰는 일이 없게 한다.
-                if agent_session["allow_write"]:
-                    label = f"[bold yellow]{agent_mode}(쓰기) ›[/bold yellow]"
-                else:
-                    label = f"[bold {style}]{agent_mode} ›[/bold {style}]"
-                user_input = console.input(f"{label} ")
+                user_input = console.input(agent_prompt(agent_mode, agent_session))
             else:
                 user_input = console.input("[bold cyan]›[/bold cyan] ")
             stripped = user_input.strip()
@@ -650,6 +708,9 @@ def run():
                     continue
                 if stripped == "사용량":
                     print_agent_usage(agent_mode, agent_session)
+                    continue
+                if stripped in ("한도", "플랜"):
+                    show_agent_limits(agent_mode)
                     continue
                 if stripped in ("새 대화", "초기화"):
                     agent_session = new_agent_session(

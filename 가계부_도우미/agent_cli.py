@@ -37,6 +37,8 @@ AGENTS = {
         "json_output": True,
         "login_args": ["auth", "login"],
         "status_args": ["auth", "status"],
+        # 플랜 한도는 대화형에서만 볼 수 있다. 여기서 안내할 명령어.
+        "limit_command": "/usage",
         "style": "bright_magenta",
     },
     "코덱스": {
@@ -54,6 +56,7 @@ AGENTS = {
         "json_output": False,
         "login_args": ["login"],
         "status_args": ["login", "status"],
+        "limit_command": "/status",
         "style": "bright_green",
     },
 }
@@ -100,6 +103,24 @@ def login(agent_key):
     if result.returncode != 0:
         return {"error": "로그인이 완료되지 않았습니다."}
     return {"output": f"{agent['label']} 로그인이 끝났습니다."}
+
+
+def run_interactive(agent_key):
+    """CLI를 대화형으로 띄워 터미널을 그대로 넘긴다.
+
+    플랜 한도(/usage) 같은 정보는 대화형 화면에서만 볼 수 있어서, 로그인과
+    같은 방식으로 출력을 가로채지 않고 자식 프로세스에 터미널을 맡긴다.
+    """
+    agent = AGENTS[agent_key]
+    executable = shutil.which(agent["executable"])
+    if executable is None:
+        return {"error": f"'{agent['executable']}' 명령을 찾을 수 없습니다."}
+
+    try:
+        subprocess.run([executable])
+    except OSError as e:
+        return {"error": f"{agent['label']} 실행에 실패했습니다: {e}"}
+    return {"output": f"{agent['label']}에서 돌아왔습니다."}
 
 
 def auth_status(agent_key):
