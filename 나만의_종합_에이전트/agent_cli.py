@@ -46,7 +46,9 @@ AGENTS = {
         "executable": "codex",
         "first_args": ["exec", "{perm}", "{model}"],
         # exec resume은 --sandbox/-m을 받지 않는다.
-        "next_args": ["exec", "resume", "--last"],
+        # 세션 id를 잡아냈으면 그걸 쓰고, 못 잡았으면 --last로 물러선다.
+        # (--last는 다른 터미널에서 돌린 코덱스 대화를 이어받을 수 있다.)
+        "next_args": ["exec", "resume", "{session_or_last}"],
         "read_args": ["--sandbox", "read-only"],
         # workspace-write는 작업 폴더 안에서만 쓰기를 허용한다.
         "write_args": ["--sandbox", "workspace-write"],
@@ -56,7 +58,8 @@ AGENTS = {
         "json_output": False,
         "login_args": ["login"],
         "status_args": ["login", "status"],
-        "limit_command": "/status",
+        # 코덱스에서 한도를 보는 명령은 아직 확인하지 못했다. 확인되면 채운다.
+        "limit_command": None,
         "style": "bright_green",
     },
 }
@@ -76,6 +79,8 @@ NOISE_PREFIXES = (
 )
 # 타임스탬프가 붙은 내부 로그 줄 (예: 2026-08-28T06:08:03.584322Z ERROR ...)
 NOISE_LOG_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s+(ERROR|WARN|INFO|DEBUG)\b")
+# 코덱스가 출력하는 세션 id. 대화를 정확히 이어가려고 걷어내기 전에 잡아둔다.
+SESSION_ID_PATTERN = re.compile(r"session id:\s*([0-9a-fA-F-]{32,40})")
 
 
 def is_available(agent_key):
@@ -193,6 +198,8 @@ def _build_args(agent, is_first, session_id, allow_write, model=None):
                 args.extend([agent["model_flag"], model])
         elif part == "{session}":
             args.append(session_id or "")
+        elif part == "{session_or_last}":
+            args.append(session_id or "--last")
         else:
             args.append(part)
     return args
@@ -283,5 +290,12 @@ def ask_agent(agent_key, prompt, cwd=None, timeout=600, session_id=None, is_firs
             pass
 
     # codex는 답변을 stderr로 내보내기도 해서 stdout이 비면 stderr를 쓴다.
-    answer = _clean_output(stdout or stderr, prompt)
-    return {"output": answer or "(빈 응답)"}
+    raw = stdout or stderr
+    answer = _clean_output(raw, prompt)
+    result = {"output": answer or "(빈 응답)"}
+
+    # 세션 id를 찾으면 알려준다. 다음 질문에서 이 대화를 정확히 이어가는 데 쓴다.
+    found = SESSION_ID_PATTERN.search(stderr or "") or SESSION_ID_PATTERN.search(raw)
+    if found:
+        result["cli_session_id"] = found.group(1)
+    return result

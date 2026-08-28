@@ -617,10 +617,17 @@ def show_agent_limits(agent_key):
     """플랜 한도를 보려고 CLI를 대화형으로 잠깐 띄운다."""
     agent = agent_cli.AGENTS[agent_key]
     command = agent["limit_command"]
-    console.print(
-        f"[dim]{agent['label']}를 띄웁니다. [bold]{command}[/bold] 를 입력해 한도를 확인하고, "
-        f"끝나면 종료해서 커리마로 돌아오세요.[/dim]\n"
-    )
+    if command:
+        console.print(
+            f"[dim]{agent['label']}를 띄웁니다. [bold]{command}[/bold] 를 입력해 한도를 확인하고, "
+            f"끝나면 종료해서 커리마로 돌아오세요.[/dim]\n"
+        )
+    else:
+        # 명령어를 확실히 모르면 아는 척하지 않는다.
+        console.print(
+            f"[dim]{agent['label']}를 띄웁니다. 한도를 보는 명령은 확인되지 않아서, "
+            f"'/'를 눌러 명령 목록에서 찾아보세요. 끝나면 종료하면 커리마로 돌아옵니다.[/dim]\n"
+        )
     result = agent_cli.run_interactive(agent_key)
     console.print()
     if "error" in result:
@@ -652,6 +659,10 @@ def ask_agent_and_print(agent_key, prompt, session):
         return
 
     session["started"] = True
+    # 코덱스처럼 CLI가 자기 세션 id를 알려주면, 다음 질문은 그 id로 정확히 이어간다.
+    if result.get("cli_session_id"):
+        session["id"] = result["cli_session_id"]
+
     console.print(f"[bold {agent['style']}]● {agent['label']}[/bold {agent['style']}]")
     console.print(Padding(Markdown(result["output"]), (0, 0, 0, 2)))
 

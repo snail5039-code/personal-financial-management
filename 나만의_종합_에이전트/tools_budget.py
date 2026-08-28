@@ -1,25 +1,14 @@
-"""Gemini Function Calling에 사용할 tool 스키마와 실제 구현 함수 모음.
+"""거래 내역 · 예산 · 카테고리 도구.
 
-함수가 하나씩 만들어질 때마다:
-1. 아래에 구현 함수를 추가하고
-2. 스키마(dict)를 추가하고
-3. TOOLS, FUNCTION_MAP에 등록한다.
+데이터는 storage.py(data/transactions.json)에 저장한다.
 """
 
-import copy
 import datetime
 import json
 import os
 
-import calculator
-import exchange
-import google_tasks
-import memo_storage
 import storage
-import weather
-
-# 카테고리는 고정 목록이 아니라 data/transactions.json에 저장되는 동적 목록이다.
-# (category_registration/Modification/Delete로 관리, storage.DEFAULT_CATEGORIES가 초기값)
+import undo
 
 
 def get_categories():
@@ -27,20 +16,10 @@ def get_categories():
     return storage.load_data()["categories"]
 
 
-# 되돌리기(undo)용: 가장 최근 작업 1건의 역연산 정보만 보관한다.
-# kind="budget"이면 가계부 데이터 스냅샷, 그 외(todo_*)면 할일을 되돌리는 데 필요한 정보.
-_last_action = None
-
-
-def _save_snapshot(kind, data):
-    """로컬 저장소(가계부/메모) 데이터 변경 직전 상태를 되돌리기용으로 기억한다."""
-    global _last_action
-    _last_action = {"kind": kind, "snapshot": copy.deepcopy(data)}
-
-
-def _record_todo_undo(action):
-    global _last_action
-    _last_action = action
+def _save_snapshot(data):
+    """변경 직전 상태를 되돌리기용으로 기억한다."""
+    snapshot = undo.copy_of(data)
+    undo.record(lambda: storage.save_data(snapshot))
 
 
 # ---------------------------------------------------------------------------
@@ -63,7 +42,7 @@ def transaction_registration(category, amount=None, description=None, budget=Non
             "categories": data["categories"],
         }
 
-    _save_snapshot("budget", data)
+    _save_snapshot(data)
 
     transaction = None
     if amount is not None:
@@ -231,7 +210,7 @@ def transaction_Modification(id=None, category=None, date=None, amount=None, des
     if amount is not None and amount == 0:
         return {"error": "0원으로는 수정할 수 없습니다."}
 
-    _save_snapshot("budget", data)
+    _save_snapshot(data)
 
     if id is not None:
         if category is not None:
@@ -317,7 +296,7 @@ def transaction_Delete(id=None, category=None, date=None, query=None):
             }
         target = candidates[0]
 
-    _save_snapshot("budget", data)
+    _save_snapshot(data)
     data["transactions"].remove(target)
     storage.save_data(data)
     return {
@@ -569,7 +548,7 @@ def category_registration(category):
             "categories": data["categories"],
         }
 
-    _save_snapshot("budget", data)
+    _save_snapshot(data)
     data["categories"].append(category)
     storage.save_data(data)
     return {
@@ -607,7 +586,7 @@ def category_Modification(old_category, new_category):
     if new_category in data["categories"]:
         return {"message": f"'{new_category}'는 이미 존재하는 카테고리라 이름을 바꿀 수 없습니다."}
 
-    _save_snapshot("budget", data)
+    _save_snapshot(data)
     data["categories"] = [
         new_category if c == old_category else c for c in data["categories"]
     ]
@@ -660,7 +639,7 @@ def category_Delete(category):
     if category not in data["categories"]:
         return {"message": f"'{category}' 카테고리를 찾을 수 없어 삭제할 수 없습니다."}
 
-    _save_snapshot("budget", data)
+    _save_snapshot(data)
     data["categories"].remove(category)
     for tx in data["transactions"]:
         if tx["category"] == category:
@@ -695,612 +674,3 @@ category_Delete_tool = {
 
 
 # ---------------------------------------------------------------------------
-# 11. undo_last_action
-# ---------------------------------------------------------------------------
-def undo_last_action():
-    """가장 최근에 실행된 거래/카테고리/할일 등록·수정·삭제 작업 한 건을 되돌린다."""
-    global _last_action
-
-    if _last_action is None:
-        return {"message": "되돌릴 작업이 없습니다."}
-
-    action = _last_action
-    _last_action = None
-
-    try:
-        kind = action["kind"]
-        if kind == "budget":
-            storage.save_data(action["snapshot"])
-        elif kind == "memo":
-            memo_storage.save_data(action["snapshot"])
-        elif kind == "todo_create":
-            google_tasks.delete_task(action["task_id"])
-        elif kind == "todo_uncomplete":
-            google_tasks.uncomplete_task(action["task_id"])
-        elif kind == "todo_delete":
-            task = google_tasks.insert_task(action["title"], notes=action.get("notes"), due=action.get("due"))
-            if action.get("was_completed"):
-                google_tasks.complete_task(task["id"])
-        elif kind == "todo_bulk_delete":
-            for item in action["items"]:
-                task = google_tasks.insert_task(item["title"], notes=item.get("notes"), due=item.get("due"))
-                google_tasks.complete_task(task["id"])
-    except Exception as e:
-        return {"error": f"되돌리는 중 오류가 발생했습니다: {e}"}
-
-    return {"message": "방금 작업을 되돌렸습니다."}
-
-
-undo_last_action_tool = {
-    "type": "function",
-    "name": "undo_last_action",
-    "description": (
-        "가장 최근에 실행한 거래/카테고리 등록/수정/삭제, 할일 등록/완료/삭제(완료 항목 일괄 정리 포함), "
-        "또는 메모 등록/삭제 작업을 한 번 되돌린다. 연속으로 두 번 호출해도 한 단계만 되돌리며, "
-        "되돌릴 작업이 없으면 안내한다."
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {},
-        "required": [],
-    },
-}
-
-
-# ---------------------------------------------------------------------------
-# 12. todo_registration / todo_search / todo_complete / todo_Delete
-#     (구글 할일과 연동 - 등록/완료/삭제한 항목이 폰의 구글 할일 앱에도 바로 반영된다)
-# ---------------------------------------------------------------------------
-def _todo_error_message(e):
-    if isinstance(e, google_tasks.GoogleTasksNotConfigured):
-        return str(e)
-    return f"구글 할일 서비스 호출에 실패했습니다: {e}"
-
-
-def _find_todo_by_query(query):
-    """제목에 query가 포함되는 미완료 할일을 모두 찾는다."""
-    return [t for t in google_tasks.list_tasks(show_completed=False) if query in t.get("title", "")]
-
-
-def todo_registration(title, notes=None, due=None):
-    """구글 할일에 새 항목을 등록한다. 등록하면 폰의 구글 할일 앱에도 바로 나타난다."""
-    try:
-        task = google_tasks.insert_task(title, notes=notes, due=due)
-        _record_todo_undo({"kind": "todo_create", "task_id": task["id"]})
-    except Exception as e:
-        return {"error": _todo_error_message(e)}
-    return {"message": f"'{title}' 할일을 등록했습니다.", "id": task["id"], "title": task["title"]}
-
-
-todo_registration_tool = {
-    "type": "function",
-    "name": "todo_registration",
-    "description": "구글 할일 목록에 새 항목을 등록한다. 등록한 항목은 사용자 폰의 구글 할일 앱에도 바로 나타난다.",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "title": {"type": "string", "description": "할일 제목"},
-            "notes": {"type": "string", "description": "할일에 대한 부가 설명 (선택)"},
-            "due": {"type": "string", "description": "마감일 (YYYY-MM-DD, 선택)"},
-        },
-        "required": ["title"],
-    },
-}
-
-
-def todo_search(query=None, include_completed=False):
-    """할일 목록을 조회한다. query가 있으면 제목에 포함된 항목만 필터링한다."""
-    try:
-        tasks = google_tasks.list_tasks(show_completed=include_completed)
-    except Exception as e:
-        return {"error": _todo_error_message(e)}
-
-    if query:
-        tasks = [t for t in tasks if query in t.get("title", "")]
-    if not tasks:
-        return {"message": "일치하는 할일을 찾을 수 없습니다."}
-
-    return [
-        {
-            "id": t["id"],
-            "title": t["title"],
-            "notes": t.get("notes", ""),
-            "due": t.get("due", "")[:10],
-            "completed": t.get("status") == "completed",
-        }
-        for t in tasks
-    ]
-
-
-todo_search_tool = {
-    "type": "function",
-    "name": "todo_search",
-    "description": "구글 할일 목록을 조회한다. query를 주면 제목에 그 텍스트가 포함된 항목만 보여준다.",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "query": {"type": "string", "description": "할일 제목에서 찾을 검색어 (선택)"},
-            "include_completed": {
-                "type": "boolean",
-                "description": "true면 완료된 항목도 함께 보여준다. 기본은 미완료 항목만 조회.",
-            },
-        },
-        "required": [],
-    },
-}
-
-
-def todo_complete(id=None, query=None):
-    """id 또는 제목 검색어로 찾은 할일을 완료 처리한다."""
-    try:
-        if id is None:
-            if not query:
-                return {"message": "id가 없으면 검색어(query)가 있어야 할일을 찾을 수 있습니다."}
-            matches = _find_todo_by_query(query)
-            if not matches:
-                return {"message": "일치하는 할일을 찾을 수 없습니다."}
-            if len(matches) > 1:
-                return {
-                    "message": "조건에 맞는 할일이 여러 건이라 하나로 특정할 수 없습니다. 더 구체적으로 말씀해주세요.",
-                    "candidates": [{"id": t["id"], "title": t["title"]} for t in matches],
-                }
-            id = matches[0]["id"]
-        task = google_tasks.complete_task(id)
-        _record_todo_undo({"kind": "todo_uncomplete", "task_id": id})
-    except Exception as e:
-        return {"error": _todo_error_message(e)}
-    return {"message": f"'{task['title']}' 할일을 완료 처리했습니다."}
-
-
-todo_complete_tool = {
-    "type": "function",
-    "name": "todo_complete",
-    "description": (
-        "할일을 완료 처리한다. id를 알고 있으면 id로, 모르면 query(제목 부분 일치)로 찾아 완료 처리한다. "
-        "조건에 맞는 할일이 여러 건이면 더 구체적인 정보를 요청한다."
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "id": {"type": "string", "description": "완료 처리할 할일의 id"},
-            "query": {"type": "string", "description": "id를 모를 때 제목으로 찾기 위한 검색어"},
-        },
-        "required": [],
-    },
-}
-
-
-def todo_Delete(id=None, query=None):
-    """id 또는 제목 검색어로 찾은 할일을 삭제한다."""
-    try:
-        if id is None:
-            if not query:
-                return {"message": "id가 없으면 검색어(query)가 있어야 할일을 찾을 수 있습니다."}
-            matches = _find_todo_by_query(query)
-            if not matches:
-                return {"message": "일치하는 할일을 찾을 수 없습니다."}
-            if len(matches) > 1:
-                return {
-                    "message": "조건에 맞는 할일이 여러 건이라 하나로 특정할 수 없습니다. 더 구체적으로 말씀해주세요.",
-                    "candidates": [{"id": t["id"], "title": t["title"]} for t in matches],
-                }
-            target = matches[0]
-        else:
-            target = google_tasks.get_task(id)
-            if target is None:
-                return {"message": f"id {id}에 해당하는 할일을 찾을 수 없습니다."}
-
-        google_tasks.delete_task(target["id"])
-        _record_todo_undo({
-            "kind": "todo_delete",
-            "title": target["title"],
-            "notes": target.get("notes"),
-            "due": (target.get("due") or "")[:10] or None,
-            "was_completed": target.get("status") == "completed",
-        })
-    except Exception as e:
-        return {"error": _todo_error_message(e)}
-    return {"message": f"'{target['title']}' 할일을 삭제했습니다."}
-
-
-todo_Delete_tool = {
-    "type": "function",
-    "name": "todo_Delete",
-    "description": (
-        "할일을 삭제한다. id를 알고 있으면 id로, 모르면 query(제목 부분 일치)로 찾아 삭제한다. "
-        "조건에 맞는 할일이 여러 건이면 더 구체적인 정보를 요청한다."
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "id": {"type": "string", "description": "삭제할 할일의 id"},
-            "query": {"type": "string", "description": "id를 모를 때 제목으로 찾기 위한 검색어"},
-        },
-        "required": [],
-    },
-}
-
-
-def todo_clear_completed():
-    """완료 처리된 할일을 모두 삭제해서 목록을 정리한다."""
-    try:
-        completed = [t for t in google_tasks.list_tasks(show_completed=True) if t.get("status") == "completed"]
-        if not completed:
-            return {"message": "완료된 할일이 없습니다."}
-
-        for t in completed:
-            google_tasks.delete_task(t["id"])
-
-        _record_todo_undo({
-            "kind": "todo_bulk_delete",
-            "items": [
-                {
-                    "title": t["title"],
-                    "notes": t.get("notes"),
-                    "due": (t.get("due") or "")[:10] or None,
-                }
-                for t in completed
-            ],
-        })
-    except Exception as e:
-        return {"error": _todo_error_message(e)}
-    return {"message": f"완료된 할일 {len(completed)}건을 삭제했습니다."}
-
-
-todo_clear_completed_tool = {
-    "type": "function",
-    "name": "todo_clear_completed",
-    "description": "완료 처리된 할일을 모두 삭제해서 목록을 정리한다. 완료된 항목이 없으면 안내한다.",
-    "parameters": {
-        "type": "object",
-        "properties": {},
-        "required": [],
-    },
-}
-
-
-# ---------------------------------------------------------------------------
-# 13. memo_add / memo_search / memo_Delete
-# ---------------------------------------------------------------------------
-def memo_add(text, tags=None):
-    """짧은 메모를 저장한다. tags는 쉼표로 구분된 문자열."""
-    data = memo_storage.load_data()
-    _save_snapshot("memo", data)
-
-    memo = {
-        "id": data["next_id"],
-        "text": text,
-        "tags": [t.strip() for t in tags.split(",") if t.strip()] if tags else [],
-        "created_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-    }
-    data["memos"].append(memo)
-    data["next_id"] += 1
-    memo_storage.save_data(data)
-    return {"message": "메모를 저장했습니다.", "id": memo["id"], "text": memo["text"]}
-
-
-memo_add_tool = {
-    "type": "function",
-    "name": "memo_add",
-    "description": "짧은 메모를 저장한다.",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "text": {"type": "string", "description": "메모 내용"},
-            "tags": {"type": "string", "description": "쉼표로 구분한 태그 (선택, 예: '아이디어,장보기')"},
-        },
-        "required": ["text"],
-    },
-}
-
-
-def memo_search(query=None, tag=None):
-    """메모를 조회한다. query가 있으면 내용에 포함된 메모만, tag가 있으면 해당 태그가 붙은 메모만 필터링한다."""
-    data = memo_storage.load_data()
-    memos = data["memos"]
-
-    if query is not None:
-        memos = [m for m in memos if query in m["text"]]
-    if tag is not None:
-        memos = [m for m in memos if tag in m["tags"]]
-
-    if not memos:
-        return {"message": "일치하는 메모를 찾을 수 없습니다."}
-    return memos
-
-
-memo_search_tool = {
-    "type": "function",
-    "name": "memo_search",
-    "description": "저장된 메모를 조회한다. query/tag는 모두 선택 입력이며 입력된 조건만 적용해 필터링한다.",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "query": {"type": "string", "description": "메모 내용에서 찾을 검색어 (선택)"},
-            "tag": {"type": "string", "description": "찾을 태그 (선택)"},
-        },
-        "required": [],
-    },
-}
-
-
-def memo_Delete(id=None, query=None):
-    """id 또는 내용 검색어로 찾은 메모를 삭제한다."""
-    data = memo_storage.load_data()
-
-    if id is not None:
-        target = next((m for m in data["memos"] if m["id"] == id), None)
-        if target is None:
-            return {"message": f"id {id}에 해당하는 메모를 찾을 수 없습니다."}
-    else:
-        if not query:
-            return {"message": "id가 없으면 검색어(query)가 있어야 메모를 찾을 수 있습니다."}
-        candidates = [m for m in data["memos"] if query in m["text"]]
-        if not candidates:
-            return {"message": "일치하는 메모를 찾을 수 없습니다."}
-        if len(candidates) > 1:
-            return {
-                "message": "조건에 맞는 메모가 여러 건이라 하나로 특정할 수 없습니다. 더 구체적으로 말씀해주세요.",
-                "candidates": candidates,
-            }
-        target = candidates[0]
-
-    _save_snapshot("memo", data)
-    data["memos"].remove(target)
-    memo_storage.save_data(data)
-    return {"message": f"메모('{target['text']}')를 삭제했습니다."}
-
-
-memo_Delete_tool = {
-    "type": "function",
-    "name": "memo_Delete",
-    "description": (
-        "메모를 삭제한다. id를 알고 있으면 id로, 모르면 query(내용 부분 일치)로 찾아 삭제한다. "
-        "조건에 맞는 메모가 여러 건이면 더 구체적인 정보를 요청한다."
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "id": {"type": "integer", "description": "삭제할 메모의 id"},
-            "query": {"type": "string", "description": "id를 모를 때 내용으로 찾기 위한 검색어"},
-        },
-        "required": [],
-    },
-}
-
-
-# ---------------------------------------------------------------------------
-# 14. calc_split_bill / calc_dday / calc_age / calc_business_days
-# ---------------------------------------------------------------------------
-def calc_split_bill(total_amount, people_count):
-    """총액을 인원수로 나눠 1인당 낼 금액을 계산한다 (더치페이)."""
-    if people_count <= 0:
-        return {"error": "인원수는 1명 이상이어야 합니다."}
-
-    result = calculator.split_bill(total_amount, people_count)
-    if result["remainder"]:
-        message = (
-            f"1인당 {result['per_person']:,}원씩 내고, {result['remainder']}원은 나눠떨어지지 않아 "
-            "한두 명이 조금 더 부담해야 합니다."
-        )
-    else:
-        message = f"1인당 {result['per_person']:,}원씩 내면 됩니다."
-    return {**result, "total_amount": total_amount, "people_count": people_count, "message": message}
-
-
-calc_split_bill_tool = {
-    "type": "function",
-    "name": "calc_split_bill",
-    "description": "총액을 인원수로 나눠 더치페이 시 1인당 낼 금액을 계산한다.",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "total_amount": {"type": "number", "description": "나눌 총 금액"},
-            "people_count": {"type": "integer", "description": "나눌 인원 수"},
-        },
-        "required": ["total_amount", "people_count"],
-    },
-}
-
-
-def calc_dday(target_date):
-    """오늘부터 target_date(YYYY-MM-DD)까지 남은(또는 지난) 일수를 계산한다."""
-    try:
-        days = calculator.dday(target_date)
-    except ValueError:
-        return {"error": "날짜 형식이 올바르지 않습니다. YYYY-MM-DD로 입력해주세요."}
-
-    if days > 0:
-        message = f"{target_date}까지 D-{days}일 남았습니다."
-    elif days == 0:
-        message = f"오늘이 {target_date}입니다 (D-Day)."
-    else:
-        message = f"{target_date}로부터 D+{-days}일 지났습니다."
-    return {"target_date": target_date, "days": days, "message": message}
-
-
-calc_dday_tool = {
-    "type": "function",
-    "name": "calc_dday",
-    "description": "오늘부터 특정 날짜까지 남은(또는 지난) 일수를 D-day 형식으로 계산한다.",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "target_date": {"type": "string", "description": "기준 날짜 (YYYY-MM-DD)"},
-        },
-        "required": ["target_date"],
-    },
-}
-
-
-def calc_age(birth_date):
-    """생년월일(YYYY-MM-DD) 기준 만 나이를 계산한다."""
-    try:
-        result = calculator.age(birth_date)
-    except ValueError:
-        return {"error": "날짜 형식이 올바르지 않습니다. YYYY-MM-DD로 입력해주세요."}
-    return {"birth_date": birth_date, "age": result, "message": f"만 나이는 {result}세입니다."}
-
-
-calc_age_tool = {
-    "type": "function",
-    "name": "calc_age",
-    "description": "생년월일로 만 나이를 계산한다.",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "birth_date": {"type": "string", "description": "생년월일 (YYYY-MM-DD)"},
-        },
-        "required": ["birth_date"],
-    },
-}
-
-
-def calc_business_days(start_date, end_date):
-    """start_date~end_date 사이의 평일(주말 제외) 일수를 계산한다. 공휴일은 반영하지 않는다."""
-    try:
-        count = calculator.business_days(start_date, end_date)
-    except ValueError:
-        return {"error": "날짜 형식이 올바르지 않습니다. YYYY-MM-DD로 입력해주세요."}
-    return {
-        "start_date": start_date,
-        "end_date": end_date,
-        "business_days": count,
-        "message": f"{start_date}부터 {end_date}까지 평일은 {count}일입니다 (공휴일은 반영되지 않음).",
-    }
-
-
-calc_business_days_tool = {
-    "type": "function",
-    "name": "calc_business_days",
-    "description": "두 날짜 사이의 평일(주말 제외) 일수를 계산한다. 공휴일은 반영하지 않는다.",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "start_date": {"type": "string", "description": "시작 날짜 (YYYY-MM-DD)"},
-            "end_date": {"type": "string", "description": "끝 날짜 (YYYY-MM-DD)"},
-        },
-        "required": ["start_date", "end_date"],
-    },
-}
-
-
-# ---------------------------------------------------------------------------
-# 15. weather_check
-# ---------------------------------------------------------------------------
-def weather_check(city):
-    """도시 이름으로 현재 날씨를 조회한다."""
-    try:
-        info = weather.get_weather(city)
-    except Exception as e:
-        return {"error": f"날씨 조회에 실패했습니다: {e}"}
-
-    message = (
-        f"{city} 현재 {info['description']}, 기온 {info['temperature_c']}°C"
-        f"(체감 {info['feels_like_c']}°C), 습도 {info['humidity']}%"
-    )
-    return {"city": city, **info, "message": message}
-
-
-weather_check_tool = {
-    "type": "function",
-    "name": "weather_check",
-    "description": "도시 이름으로 현재 날씨(기온/체감온도/습도/날씨 상태)를 조회한다.",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "city": {"type": "string", "description": "날씨를 조회할 도시 이름 (예: 'Seoul', 'Busan')"},
-        },
-        "required": ["city"],
-    },
-}
-
-
-# ---------------------------------------------------------------------------
-# 16. exchange_rate_check
-# ---------------------------------------------------------------------------
-def exchange_rate_check(base, target, amount=1):
-    """base 통화 amount만큼을 target 통화로 환전하면 얼마인지 조회한다 (예: USD -> KRW)."""
-    try:
-        result = exchange.get_rate(base, target, amount)
-    except Exception as e:
-        return {"error": f"환율 조회에 실패했습니다: {e}"}
-
-    message = f"{result['date']} 기준 {result['amount']} {result['base']} = {result['converted']:,} {result['target']}"
-    return {**result, "message": message}
-
-
-exchange_rate_check_tool = {
-    "type": "function",
-    "name": "exchange_rate_check",
-    "description": (
-        "한 통화(base)의 금액을 다른 통화(target)로 환전하면 얼마인지 조회한다. "
-        "통화는 ISO 코드로 입력한다 (예: USD, KRW, JPY, EUR)."
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "base": {"type": "string", "description": "환전할 기준 통화 코드 (예: 'USD')"},
-            "target": {"type": "string", "description": "바꿀 대상 통화 코드 (예: 'KRW')"},
-            "amount": {"type": "number", "description": "환전할 금액 (기본값 1)"},
-        },
-        "required": ["base", "target"],
-    },
-}
-
-
-TOOLS = [
-    transaction_registration_tool,
-    transaction_search_tool,
-    transaction_Modification_tool,
-    transaction_Delete_tool,
-    transaction_Budget_Management_tool,
-    transaction_Save_Json_tool,
-    monthly_Transaction_History_tool,
-    category_registration_tool,
-    category_Modification_tool,
-    category_Delete_tool,
-    undo_last_action_tool,
-    todo_registration_tool,
-    todo_search_tool,
-    todo_complete_tool,
-    todo_Delete_tool,
-    todo_clear_completed_tool,
-    memo_add_tool,
-    memo_search_tool,
-    memo_Delete_tool,
-    calc_split_bill_tool,
-    calc_dday_tool,
-    calc_age_tool,
-    calc_business_days_tool,
-    weather_check_tool,
-    exchange_rate_check_tool,
-]
-
-FUNCTION_MAP = {
-    "transaction_registration": transaction_registration,
-    "transaction_search": transaction_search,
-    "transaction_Modification": transaction_Modification,
-    "transaction_Delete": transaction_Delete,
-    "transaction_Budget_Management": transaction_Budget_Management,
-    "transaction_Save_Json": transaction_Save_Json,
-    "monthly_Transaction_History": monthly_Transaction_History,
-    "category_registration": category_registration,
-    "category_Modification": category_Modification,
-    "category_Delete": category_Delete,
-    "undo_last_action": undo_last_action,
-    "todo_registration": todo_registration,
-    "todo_search": todo_search,
-    "todo_complete": todo_complete,
-    "todo_Delete": todo_Delete,
-    "todo_clear_completed": todo_clear_completed,
-    "memo_add": memo_add,
-    "memo_search": memo_search,
-    "memo_Delete": memo_Delete,
-    "calc_split_bill": calc_split_bill,
-    "calc_dday": calc_dday,
-    "calc_age": calc_age,
-    "calc_business_days": calc_business_days,
-    "weather_check": weather_check,
-    "exchange_rate_check": exchange_rate_check,
-}
