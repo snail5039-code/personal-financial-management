@@ -19,6 +19,7 @@ from rich.align import Align
 from rich.console import Console, Group
 from rich.markdown import Markdown
 from rich.panel import Panel
+from rich.table import Table
 from rich.text import Text
 
 import tools
@@ -55,6 +56,62 @@ def format_args(args):
     return ", ".join(f"{k}={v!r}" for k, v in args.items())
 
 
+CATEGORY_COLORS = ["green", "blue", "magenta", "yellow", "cyan", "red", "bright_green", "bright_blue"]
+
+
+def category_style(category):
+    """카테고리 이름마다 항상 같은 색이 나오도록 해시로 색을 고정 배정한다."""
+    return CATEGORY_COLORS[hash(category) % len(CATEGORY_COLORS)]
+
+
+def format_amount(amount):
+    text = f"{amount:,}원"
+    style = "red" if amount < 0 else "green"
+    return Text(text, style=style)
+
+
+def render_search_table(results):
+    table = Table(show_header=True, header_style="bold", border_style="dim")
+    table.add_column("카테고리")
+    table.add_column("날짜")
+    table.add_column("금액", justify="right")
+    for tx in results:
+        table.add_row(
+            Text(tx["category"], style=category_style(tx["category"])),
+            tx["date"],
+            format_amount(tx["amount"]),
+        )
+    return table
+
+
+def render_budget_table(results):
+    table = Table(show_header=True, header_style="bold", border_style="dim")
+    table.add_column("카테고리")
+    table.add_column("예산", justify="right")
+    table.add_column("사용금액", justify="right")
+    table.add_column("남은돈", justify="right")
+    for row in results:
+        table.add_row(
+            Text(row["category"], style=category_style(row["category"])),
+            f"{row['budget']:,}원",
+            format_amount(row["used_amount"]),
+            format_amount(row["remaining_amount"]),
+        )
+    return table
+
+
+def render_tool_result(name, result):
+    """검색/예산 조회 결과는 표로 보기 좋게 그려준다. 해당 없으면 None."""
+    if name == "transaction_search" and isinstance(result, list) and result:
+        return render_search_table(result)
+    if name == "transaction_Budget_Management":
+        if isinstance(result, list) and result:
+            return render_budget_table(result)
+        if isinstance(result, dict) and "remaining_amount" in result:
+            return render_budget_table([result])
+    return None
+
+
 def execute_tool_call(step):
     """function_call 스텝을 실제로 실행하면서, 실행 과정을 CLI에 살짝 보여준다."""
     console.print(f"  [dim]● {step.name}({format_args(step.arguments)})[/dim]")
@@ -66,6 +123,10 @@ def execute_tool_call(step):
     if len(result_preview) > 90:
         result_preview = result_preview[:90] + "…"
     console.print(f"  [dim]  ⎿ {result_preview}[/dim]")
+
+    table = render_tool_result(step.name, result)
+    if table is not None:
+        console.print(table)
 
     return {
         "type": "function_result",
