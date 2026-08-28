@@ -23,13 +23,20 @@ def get_categories():
     return storage.load_data()["categories"]
 
 
-# 되돌리기(undo)용: 가장 최근 변경 직전 상태 스냅샷 1개만 보관한다.
-_last_snapshot = None
+# 되돌리기(undo)용: 가장 최근 작업 1건의 역연산 정보만 보관한다.
+# kind="budget"이면 가계부 데이터 스냅샷, 그 외(todo_*)면 할일을 되돌리는 데 필요한 정보.
+_last_action = None
 
 
 def _save_snapshot(data):
-    global _last_snapshot
-    _last_snapshot = copy.deepcopy(data)
+    """가계부 데이터 변경 직전 상태를 되돌리기용으로 기억한다."""
+    global _last_action
+    _last_action = {"kind": "budget", "snapshot": copy.deepcopy(data)}
+
+
+def _record_todo_undo(action):
+    global _last_action
+    _last_action = action
 
 
 # ---------------------------------------------------------------------------
@@ -687,14 +694,34 @@ category_Delete_tool = {
 # 11. undo_last_action
 # ---------------------------------------------------------------------------
 def undo_last_action():
-    """가장 최근에 실행된 거래/카테고리 등록·수정·삭제 작업 한 건을 되돌린다."""
-    global _last_snapshot
+    """가장 최근에 실행된 거래/카테고리/할일 등록·수정·삭제 작업 한 건을 되돌린다."""
+    global _last_action
 
-    if _last_snapshot is None:
+    if _last_action is None:
         return {"message": "되돌릴 작업이 없습니다."}
 
-    storage.save_data(_last_snapshot)
-    _last_snapshot = None
+    action = _last_action
+    _last_action = None
+
+    try:
+        kind = action["kind"]
+        if kind == "budget":
+            storage.save_data(action["snapshot"])
+        elif kind == "todo_create":
+            google_tasks.delete_task(action["task_id"])
+        elif kind == "todo_uncomplete":
+            google_tasks.uncomplete_task(action["task_id"])
+        elif kind == "todo_delete":
+            task = google_tasks.insert_task(action["title"], notes=action.get("notes"), due=action.get("due"))
+            if action.get("was_completed"):
+                google_tasks.complete_task(task["id"])
+        elif kind == "todo_bulk_delete":
+            for item in action["items"]:
+                task = google_tasks.insert_task(item["title"], notes=item.get("notes"), due=item.get("due"))
+                google_tasks.complete_task(task["id"])
+    except Exception as e:
+        return {"error": f"되돌리는 중 오류가 발생했습니다: {e}"}
+
     return {"message": "방금 작업을 되돌렸습니다."}
 
 
@@ -702,8 +729,8 @@ undo_last_action_tool = {
     "type": "function",
     "name": "undo_last_action",
     "description": (
-        "가장 최근에 실행한 거래 등록/수정/삭제 또는 카테고리 등록/수정/삭제 작업을 한 번 되돌린다. "
-        "연속으로 두 번 호출해도 한 단계만 되돌리며, 되돌릴 작업이 없으면 안내한다."
+        "가장 최근에 실행한 거래/카테고리 등록/수정/삭제, 또는 할일 등록/완료/삭제(완료 항목 일괄 정리 포함) "
+        "작업을 한 번 되돌린다. 연속으로 두 번 호출해도 한 단계만 되돌리며, 되돌릴 작업이 없으면 안내한다."
     ),
     "parameters": {
         "type": "object",
@@ -732,6 +759,7 @@ def todo_registration(title, notes=None, due=None):
     """구글 할일에 새 항목을 등록한다. 등록하면 폰의 구글 할일 앱에도 바로 나타난다."""
     try:
         task = google_tasks.insert_task(title, notes=notes, due=due)
+        _record_todo_undo({"kind": "todo_create", "task_id": task["id"]})
     except Exception as e:
         return {"error": _todo_error_message(e)}
     return {"message": f"'{title}' 할일을 등록했습니다.", "id": task["id"], "title": task["title"]}
@@ -811,6 +839,7 @@ def todo_complete(id=None, query=None):
                 }
             id = matches[0]["id"]
         task = google_tasks.complete_task(id)
+        _record_todo_undo({"kind": "todo_uncomplete", "task_id": id})
     except Exception as e:
         return {"error": _todo_error_message(e)}
     return {"message": f"'{task['title']}' 할일을 완료 처리했습니다."}
@@ -855,6 +884,13 @@ def todo_Delete(id=None, query=None):
                 return {"message": f"id {id}에 해당하는 할일을 찾을 수 없습니다."}
 
         google_tasks.delete_task(target["id"])
+        _record_todo_undo({
+            "kind": "todo_delete",
+            "title": target["title"],
+            "notes": target.get("notes"),
+            "due": (target.get("due") or "")[:10] or None,
+            "was_completed": target.get("status") == "completed",
+        })
     except Exception as e:
         return {"error": _todo_error_message(e)}
     return {"message": f"'{target['title']}' 할일을 삭제했습니다."}
@@ -878,6 +914,44 @@ todo_Delete_tool = {
 }
 
 
+def todo_clear_completed():
+    """완료 처리된 할일을 모두 삭제해서 목록을 정리한다."""
+    try:
+        completed = [t for t in google_tasks.list_tasks(show_completed=True) if t.get("status") == "completed"]
+        if not completed:
+            return {"message": "완료된 할일이 없습니다."}
+
+        for t in completed:
+            google_tasks.delete_task(t["id"])
+
+        _record_todo_undo({
+            "kind": "todo_bulk_delete",
+            "items": [
+                {
+                    "title": t["title"],
+                    "notes": t.get("notes"),
+                    "due": (t.get("due") or "")[:10] or None,
+                }
+                for t in completed
+            ],
+        })
+    except Exception as e:
+        return {"error": _todo_error_message(e)}
+    return {"message": f"완료된 할일 {len(completed)}건을 삭제했습니다."}
+
+
+todo_clear_completed_tool = {
+    "type": "function",
+    "name": "todo_clear_completed",
+    "description": "완료 처리된 할일을 모두 삭제해서 목록을 정리한다. 완료된 항목이 없으면 안내한다.",
+    "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+    },
+}
+
+
 TOOLS = [
     transaction_registration_tool,
     transaction_search_tool,
@@ -894,6 +968,7 @@ TOOLS = [
     todo_search_tool,
     todo_complete_tool,
     todo_Delete_tool,
+    todo_clear_completed_tool,
 ]
 
 FUNCTION_MAP = {
@@ -912,4 +987,5 @@ FUNCTION_MAP = {
     "todo_search": todo_search,
     "todo_complete": todo_complete,
     "todo_Delete": todo_Delete,
+    "todo_clear_completed": todo_clear_completed,
 }

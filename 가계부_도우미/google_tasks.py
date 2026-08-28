@@ -95,6 +95,14 @@ def complete_task(task_id):
     ).execute()
 
 
+def uncomplete_task(task_id):
+    """할일을 다시 미완료 상태로 되돌린다 (완료 처리 되돌리기용)."""
+    service = _get_service()
+    return service.tasks().patch(
+        tasklist=TASKLIST, task=task_id, body={"status": "needsAction"}
+    ).execute()
+
+
 def delete_task(task_id):
     """할일을 삭제한다."""
     service = _get_service()
