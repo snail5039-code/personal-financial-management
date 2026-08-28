@@ -17,7 +17,6 @@ from rich.align import Align
 from rich.console import Console, Group
 from rich.markdown import Markdown
 from rich.padding import Padding
-from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
@@ -166,16 +165,17 @@ def render_spending_share_chart(results):
 
     bar_width = 20
     body = Text()
+    body.append("카테고리별 지출 비중\n", style="dim")
     for category, amount in sorted(spent, key=lambda x: x[1], reverse=True):
         share = amount / total
         filled = round(share * bar_width)
         bar = "█" * filled + "░" * (bar_width - filled)
         style = category_style(category)
-        body.append(f"{category:8s} ", style=style)
+        body.append(f"  {category:8s} ", style=style)
         body.append(f"{bar} ", style=style)
         body.append(f"{share * 100:4.1f}%\n", style="dim")
 
-    return Panel(body, title="[dim]카테고리별 지출 비중[/dim]", border_style="dim", padding=(0, 1))
+    return body
 
 
 def render_tool_result(name, result):
@@ -232,11 +232,14 @@ MASCOT = "\n".join([
 def print_welcome():
     categories = ", ".join(tools.get_categories())
 
-    mascot = Align.center(Text(MASCOT, style="bold yellow"))
-    greeting = Align.center(Text("안녕하세요! 저는 '코이니'예요, 가계부 도우미가 도와드릴게요!", style="bold cyan"))
+    console.rule("[bold]가계부 도우미[/bold]", style="cyan")
+    console.print()
+    console.print(Align.center(Text(MASCOT, style="bold yellow")))
+    console.print(Align.center(Text("안녕하세요! 저는 '코이니'예요, 가계부 도우미가 도와드릴게요!", style="bold cyan")))
+    console.print()
 
-    body = Text()
-    body.append("\n자연어로 편하게 말씀해주세요.\n\n", style="bold")
+    console.print("자연어로 편하게 말씀해주세요.\n", style="bold")
+
     examples = [
         ("등록", "식비 예산 30만원으로 잡아줘 / 오늘 점심 만원 썼어"),
         ("검색", "이번 달 식비 내역 보여줘"),
@@ -248,21 +251,15 @@ def print_welcome():
         ("월별 보고서", "8월 내역 정리해줘"),
         ("카테고리 관리", "차량 유지비 카테고리 추가해줘"),
     ]
+    grid = Table.grid(padding=(0, 1, 0, 2))
+    grid.add_column(style="cyan", no_wrap=True)
+    grid.add_column(style="dim")
     for label, example in examples:
-        body.append(f"  • {label:10s}", style="cyan")
-        body.append(f" {example}\n", style="dim")
-    body.append(f"\n현재 카테고리: {categories}\n", style="dim")
-    body.append("'도움말'로 이 안내를 다시 보고, '새 대화'로 대화를 초기화하고, '종료'로 끝냅니다.", style="dim italic")
+        grid.add_row(f"• {label}", example)
+    console.print(grid)
 
-    console.print(
-        Panel(
-            Group(mascot, greeting, body),
-            title="[bold]가계부 도우미[/bold]",
-            subtitle="[dim]Gemini Function Calling[/dim]",
-            border_style="cyan",
-            padding=(1, 2),
-        )
-    )
+    console.print(f"\n현재 카테고리: {categories}", style="dim")
+    console.print("'도움말'로 이 안내를 다시 보고, '새 대화'로 대화를 초기화하고, '종료'로 끝냅니다.", style="dim italic")
     console.print()
 
 
@@ -290,6 +287,8 @@ def run():
                 save_previous_interaction_id(None)
                 console.print("[dim]대화를 새로 시작합니다.[/dim]\n")
                 continue
+
+            console.rule(style="grey50")
 
             with console.status("[dim]생각하는 중...[/dim]", spinner="dots"):
                 interaction = safe_create_interaction(user_input, previous_interaction_id)
