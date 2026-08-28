@@ -13,20 +13,19 @@
 
 ## 2. 파일 구조
 
-핵심 로직(`tools.py`/`storage.py`)은 프로젝트 루트에 두고 공유하며, **실행 진입점(entry point)은 두 가지 버전**으로 나뉜다. 둘 다 같은 `data/transactions.json`을 보고, 같은 `tools.TOOLS`/`tools.FUNCTION_MAP`을 쓴다.
+`기본_CLI`와 `가계부_도우미`는 **완전히 독립적인 두 개의 폴더**다. 각자 자기 폴더 안에 `tools.py`/`storage.py`/`.env`/`requirements.txt` 사본을 따로 갖고 있고, 서로의 파일을 참조하지 않는다 (데이터도 각자 폴더 안의 `data/`에 따로 쌓인다).
+
+**`기본_CLI/`는 여기서 개발을 멈추고 더 이상 갱신하지 않는다.** 앞으로의 기능 추가/개선은 전부 `가계부_도우미/` 쪽에서만 진행한다.
 
 | 파일/폴더 | 역할 |
 |---|---|
-| `tools.py` | 10개 tool의 스키마(dict)와 실제 파이썬 구현 함수, `TOOLS`/`FUNCTION_MAP` |
-| `storage.py` | `data/transactions.json` 읽기/쓰기 공용 헬퍼 (`load_data`/`save_data`) |
-| `data/` | 실제 데이터 파일 및 내보내기 결과물(JSON/Markdown)이 저장되는 폴더 |
-| `.env` | `GEMINI_API_KEY` 저장 |
-| `requirements.txt` | 루트 공통 의존성: `google-genai`, `python-dotenv` |
-| `기본_CLI/main.py` | 순수 텍스트 CLI 버전. Gemini 클라이언트 초기화, while 루프, function_call 감지·실행·재전달. 상위 폴더의 `tools.py`/`.env`를 `sys.path`/`load_dotenv(path)`로 가져와서 씀 |
-| `가계부_도우미/app.py` | 위와 로직은 동일하고 `rich` 라이브러리로 Claude Code 스타일 터미널 UI(패널, 색상, 마크다운, 스피너)만 새로 입힌 버전 |
-| `가계부_도우미/requirements.txt` | 이 폴더 전용 의존성: `google-genai`, `python-dotenv`, `rich` |
+| `PLAN.md`, `Personal_financial_management.txt` | 루트에 공통으로 남아있는 설계 문서/원본 기획 |
+| `기본_CLI/main.py` | 순수 텍스트 CLI 버전 (개발 중단, 스냅샷 그대로 유지) |
+| `기본_CLI/tools.py`, `storage.py`, `.env`, `requirements.txt` | 위 버전 전용 사본 |
+| `가계부_도우미/app.py` | 로직은 동일하고 `rich` 라이브러리로 Claude Code 스타일 터미널 UI(패널, 색상, 표, 마크다운, 스피너, 마스코트)를 입힌 버전 — **여기서 계속 발전시킬 버전** |
+| `가계부_도우미/tools.py`, `storage.py`, `.env`, `requirements.txt` | 위 버전 전용 사본 |
 
-## 3. 데이터 모델 (`data/transactions.json`)
+## 3. 데이터 모델 (각 폴더의 `data/transactions.json`)
 
 ```json
 {
@@ -90,23 +89,23 @@
 
 ## 8. 실행 방법
 
-두 버전 중 원하는 쪽을 실행하면 된다 (기능은 동일, UI만 다름).
+두 폴더가 완전히 독립적이라, 각 폴더 안에서 각자 설치/실행한다.
 
-**기본 CLI (순수 텍스트)**
+**기본 CLI (순수 텍스트, 개발 중단)**
 ```bash
-pip install -r requirements.txt
 cd 기본_CLI
+pip install -r requirements.txt
 python main.py
 ```
 
-**가계부 도우미 (Claude Code 스타일 UI)**
+**가계부 도우미 (Claude Code 스타일 UI, 계속 발전 중)**
 ```bash
 cd 가계부_도우미
 pip install -r requirements.txt
 python app.py
 ```
 
-`.env`(프로젝트 루트)에 `GEMINI_API_KEY`가 설정되어 있어야 하며, VSCode 통합 터미널 사용을 권장 (콘솔 인코딩 이슈로 두 스크립트 모두 `sys.stdout.reconfigure(encoding="utf-8")` 처리됨).
+각 폴더 안의 `.env`에 `GEMINI_API_KEY`가 이미 들어있으며(두 폴더 모두 동일한 키를 각자 들고 있음), VSCode 통합 터미널 사용을 권장 (콘솔 인코딩 이슈로 두 스크립트 모두 `sys.stdout.reconfigure(encoding="utf-8")` 처리됨).
 
 ## 9. 사용법 (예시)
 

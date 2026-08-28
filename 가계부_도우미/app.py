@@ -1,7 +1,7 @@
 """가계부 도우미 - Claude Code 스타일 CLI
 
-상위 폴더의 tools.py/storage.py(실제 로직)와 Gemini Interactions API 연동 로직은
-main.py와 동일하고, 이 파일은 그 위에 터미널 UI(rich)만 새로 입힌 것이다.
+이 폴더 안의 tools.py/storage.py(실제 로직)와 Gemini Interactions API 연동 로직을 쓰고,
+그 위에 터미널 UI(rich)를 입힌 것이다. 기본_CLI 폴더와는 완전히 독립적인 사본이다.
 """
 
 import datetime
@@ -10,8 +10,6 @@ import os
 import sys
 
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.dirname(THIS_DIR)
-sys.path.insert(0, PROJECT_ROOT)
 
 from dotenv import load_dotenv
 from google import genai
@@ -25,7 +23,7 @@ from rich.text import Text
 import tools
 
 sys.stdout.reconfigure(encoding="utf-8")
-load_dotenv(os.path.join(PROJECT_ROOT, ".env"))
+load_dotenv(os.path.join(THIS_DIR, ".env"))
 
 MODEL = "gemini-3.6-flash"
 

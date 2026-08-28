@@ -2,10 +2,11 @@
 
 client.interactions.create()가 대화를 서버 사이드에 저장하고(store=True),
 previous_interaction_id로 이어서 대화를 이어간다. while 루프로 사용자 입력을 받아
-Gemini에게 보내고, function_call 스텝이 나오면 상위 폴더 tools.py의 실제 함수를 실행한 뒤
+Gemini에게 보내고, function_call 스텝이 나오면 이 폴더 안의 tools.py의 실제 함수를 실행한 뒤
 결과를 다시 Gemini에게 돌려줘서 최종 자연어 응답을 받는다.
 
-꾸며진 버전은 ../가계부_도우미/app.py 참고 (같은 로직 + rich로 CLI 디자인만 다르게 입힘).
+이 폴더는 여기서 개발을 멈추고 더 이상 갱신하지 않는다 (더 다듬는 건 ../가계부_도우미/app.py 쪽에서 계속됨).
+tools.py/storage.py/.env는 가계부_도우미 폴더와 완전히 독립적인 사본이다.
 """
 
 import datetime
@@ -14,8 +15,6 @@ import os
 import sys
 
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.dirname(THIS_DIR)
-sys.path.insert(0, PROJECT_ROOT)
 
 from dotenv import load_dotenv
 from google import genai
@@ -25,7 +24,7 @@ import tools
 # Windows 콘솔 기본 인코딩(cp949)에서 한글이 깨지는 것을 방지
 sys.stdout.reconfigure(encoding="utf-8")
 
-load_dotenv(os.path.join(PROJECT_ROOT, ".env"))
+load_dotenv(os.path.join(THIS_DIR, ".env"))
 
 MODEL = "gemini-3.6-flash"
 
