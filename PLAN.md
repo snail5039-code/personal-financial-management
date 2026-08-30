@@ -30,7 +30,7 @@
 ```json
 {
   "transactions": [
-    { "id": 1, "category": "식비", "date": "2026-08-28", "amount": -8000, "description": "점심값" }
+    { "id": 1, "category": "식비", "date": "2026-08-28", "amount": 8000, "description": "점심값" }
   ],
   "budgets": { "식비": 100000 },
   "next_id": 2,
@@ -38,7 +38,9 @@
 }
 ```
 
-- `amount`는 부호 있는 숫자 (지출/수입 구분 없이 그대로 등록, 0은 금지)
+- `amount`는 부호 있는 숫자. 예산(`budgets`)에서 남은 돈을 `budget - sum(amount)`로 계산하므로,
+  지출은 양수로, 수입/환불처럼 예산에 다시 채워지는 금액은 음수로 등록해야 한다 (0은 금지).
+  이 규칙은 도구 설명과 시스템 프롬프트에 명시해서 Gemini가 지키도록 한다.
 - `next_id`는 거래 등록 시마다 발급되는 고유 id 카운터 (삭제해도 재사용 안 함)
 - `categories`는 파일이 없을 때 `storage.DEFAULT_CATEGORIES` 6개로 초기화됨
 

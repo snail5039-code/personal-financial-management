@@ -194,19 +194,33 @@ def todo_clear_completed():
     """완료 처리된 할일을 모두 삭제해서 목록을 정리한다."""
     try:
         completed = [t for t in google_tasks.list_tasks(show_completed=True) if t.get("status") == "completed"]
-        if not completed:
-            return {"message": "완료된 할일이 없습니다."}
-
-        for t in completed:
-            google_tasks.delete_task(t["id"])
-
-        # 정리를 되돌리는 건 지운 것들을 완료 상태 그대로 되살리는 것.
-        undo.record(
-            lambda items=[dict(t) for t in completed]: [_restore_task(i) for i in items]
-        )
     except Exception as e:
         return {"error": _todo_error_message(e)}
-    return {"message": f"완료된 할일 {len(completed)}건을 삭제했습니다."}
+
+    if not completed:
+        return {"message": "완료된 할일이 없습니다."}
+
+    # 도중에 하나가 실패해도 이미 지운 것들은 되돌릴 수 있어야 하므로,
+    # 하나씩 지우면서 실제로 지운 것만 따로 기록해둔다.
+    deleted = []
+    failure = None
+    for t in completed:
+        try:
+            google_tasks.delete_task(t["id"])
+        except Exception as e:
+            failure = e
+            break
+        deleted.append(t)
+
+    if deleted:
+        # 정리를 되돌리는 건 지운 것들을 완료 상태 그대로 되살리는 것.
+        undo.record(lambda items=[dict(t) for t in deleted]: [_restore_task(i) for i in items])
+
+    if failure is not None:
+        return {
+            "error": f"{_todo_error_message(failure)} ({len(deleted)}/{len(completed)}건 삭제 후 중단했습니다.)"
+        }
+    return {"message": f"완료된 할일 {len(deleted)}건을 삭제했습니다."}
 
 
 todo_clear_completed_tool = {

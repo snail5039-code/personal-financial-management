@@ -95,7 +95,12 @@ def financial_agent():
     print_intro()
 
     while True:
-        user_input = input("사용자 : ")
+        user_input = input("사용자 : ").strip()
+
+        if not user_input:
+            print("가계부 도우미 : 내용을 입력해주세요.")
+            print()
+            continue
 
         if user_input == "종료":
             break

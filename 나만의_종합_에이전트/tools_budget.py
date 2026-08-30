@@ -81,6 +81,7 @@ transaction_registration_tool = {
     "name": "transaction_registration",
     "description": (
         "새로운 거래(지출 또는 수입)를 등록하고, 필요하면 카테고리 예산도 함께 설정한다. "
+        "지출은 amount를 양수로, 수입/환불은 음수로 등록해야 남은 예산 계산이 맞는다(amount 설명 참고). "
         "amount 없이 budget만 주면 거래를 등록하지 않고 예산만 설정한다. "
         "날짜는 오늘 날짜로 자동 기록되며, 금액이 0원이면 등록하지 않는다. "
         "amount와 budget 둘 다 없으면 호출할 수 없다. category는 반드시 이미 등록된 카테고리여야 하며, "
@@ -96,7 +97,9 @@ transaction_registration_tool = {
             "amount": {
                 "type": "number",
                 "description": (
-                    "등록할 거래 금액. 지출과 수입(예: 월급) 모두 이 값으로 등록한다. "
+                    "등록할 거래 금액. 예산(budget)에서 돈이 빠져나가는 지출은 양수로, "
+                    "수입이나 환불처럼 예산에 다시 채워지는 금액은 음수로 등록한다 "
+                    "(예: 점심값 만원 지출은 10000, 환불받은 만원이나 월급처럼 예산에 채워 넣는 돈은 -10000). "
                     "0은 허용되지 않는다. 거래 없이 예산만 설정하려면 생략한다."
                 ),
             },
@@ -252,7 +255,10 @@ transaction_Modification_tool = {
             },
             "amount": {
                 "type": "number",
-                "description": "새로 바꿀 거래 금액. 0은 허용되지 않는다.",
+                "description": (
+                    "새로 바꿀 거래 금액. 지출은 양수, 수입/환불은 음수로 바꿔야 남은 예산 계산이 맞는다. "
+                    "0은 허용되지 않는다."
+                ),
             },
             "description": {
                 "type": "string",

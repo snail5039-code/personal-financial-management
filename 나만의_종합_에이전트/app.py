@@ -8,6 +8,7 @@ import datetime
 import itertools
 import json
 import os
+import pathlib
 import sys
 
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -30,18 +31,54 @@ load_dotenv(os.path.join(THIS_DIR, ".env"))
 MODEL = "gemini-3.6-flash"
 
 client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
-console = Console()
+# 트레이 아이콘의 "커리마 열기"로 띄운 창은 Rich의 터미널 감지에 필요한 환경변수
+# (WT_SESSION 등)가 부모 프로세스(트레이 앱)로부터 그대로 안 내려오는 경우가 있어서,
+# 실제로는 트루컬러를 지원하는 터미널인데도 마스코트 배경색이 안 그려지는 문제가 있었다.
+# 환경변수 감지에 의존하지 말고 트루컬러를 강제한다.
+console = Console(color_system="truecolor")
 
-TODAY = datetime.datetime.now().strftime("%Y-%m-%d")
 ASSISTANT_NAME = "커리마"
 
-SYSTEM_INSTRUCTION = (
-    f"당신의 이름은 '{ASSISTANT_NAME}'입니다. 오늘 날짜는 {TODAY}입니다. "
-    "사용자가 '오늘', '어제', '이번 달'처럼 상대적인 날짜를 말하면 "
-    "이 날짜를 기준으로 계산해서 도구 호출 시 날짜는 YYYY-MM-DD, 월은 YYYY-MM 형식으로 변환해서 넘기세요. "
-    "당신은 개인 거래 내역/예산, 할일(구글 할일 연동), 메모를 관리하고 생활 계산(더치페이/D-day/만나이/근무일수), "
-    "날씨, 환율 조회까지 도와주는 개인비서 에이전트입니다."
-)
+
+def build_system_instruction():
+    """호출 시점의 오늘 날짜를 반영해 시스템 지시문을 새로 만든다.
+
+    모듈 로드 시 한 번만 고정하면 자정을 넘겨 오래 켜둔 세션에서 '오늘/어제' 해석이 하루씩 밀리므로,
+    매 호출마다 새로 만든다.
+    """
+    now = datetime.datetime.now()
+    today = now.strftime("%Y-%m-%d")
+    now_time = now.strftime("%H:%M")
+    return (
+        f"당신의 이름은 '{ASSISTANT_NAME}'입니다. 지금은 {today} {now_time}입니다. "
+        "사용자가 '오늘', '어제', '이번 달'처럼 상대적인 날짜나 '15분 후', '지금부터 1시간 뒤'처럼 "
+        "상대적인 시각을 말하면 이 날짜/시각을 기준으로 계산해서 도구 호출 시 날짜는 YYYY-MM-DD, "
+        "월은 YYYY-MM, 일정 시각은 YYYY-MM-DDTHH:MM:SS 형식으로 변환해서 넘기세요. "
+        "거래를 등록/수정할 때 금액(amount)의 부호에 주의하세요: 지출(돈이 나가는 것)은 양수로, "
+        "수입이나 환불처럼 예산에 다시 채워지는 금액은 음수로 등록해야 남은 예산이 올바르게 계산됩니다. "
+        "news_briefing으로 받은 각 뉴스 항목에는 summary(실제 기사 요약문)가 이미 들어있으니, "
+        "사용자가 방금 보여준 뉴스 중 하나를 더 자세히 알려달라거나 요약해달라고 하면 "
+        "news_briefing을 다시 부르지 말고 대화에 이미 있는 summary를 바탕으로 답하세요. "
+        "screen_capture를 호출하면 그 즉시 지금 화면 이미지가 당신에게 보여지니, 화면 내용을 묻는 "
+        "질문에는 이 도구로 직접 보고 답하고 사용자에게 설명해달라고 되묻지 마세요. "
+        "app_close/file_move/file_rename/file_delete/calendar_add_event처럼 되돌리기 어려운 도구는 "
+        "호출하면 사용자에게 터미널(또는 음성 웨이크워드 중이면 음성)으로 직접 y/n 확인을 받은 뒤에 "
+        "실행되니, 미리 괜찮은지 되묻지 말고 그냥 호출하세요. 사용자가 취소하면 결과에 그렇게 나타납니다. "
+        "Gmail은 읽기 전용입니다 (메일 발송/삭제는 지원하지 않음). 구글 캘린더는 조회뿐 아니라 "
+        "일정 추가(calendar_add_event)도 지원하지만, 일정 수정/삭제는 아직 지원하지 않습니다. "
+        "credentials.json이 아직 없으면 도구 결과에 안내 문구가 오니 그대로 사용자에게 전달하세요. "
+        "자동 아침 브리핑은 이 대화창이 아니라 별도로 띄워둔 트레이 앱(tray_app.py)이 그 시각에 "
+        "윈도우 알림으로 보내는 것입니다. set_briefing_time/set_briefing_enabled는 시각/켜짐 여부만 "
+        "바꾸는 것이고, 트레이 앱이 실행 중이어야 실제로 알림이 온다는 걸 사용자에게 알려주세요. "
+        "local_search는 반드시 index_local_documents로 색인을 먼저 만들어야 결과가 나옵니다. "
+        "색인은 문서·바탕화면 폴더를 전부 훑고 임베딩 API를 호출해서 시간이 걸리고 비용도 드니, "
+        "사용자가 색인을 요청하면 시간이 좀 걸릴 수 있다고 미리 알려주고 호출하세요. "
+        "당신은 개인 거래 내역/예산, 할일(구글 할일 연동), 메모를 관리하고 생활 계산(더치페이/D-day/만나이/근무일수), "
+        "날씨, 환율, 경제/IT 뉴스 브리핑, PC 상태(CPU/메모리/디스크/네트워크), 클립보드, 화면 인식, "
+        "PC 제어(앱 실행/종료, 볼륨, 화면 잠금), 파일 관리(검색/열기/읽기/복사/이동/이름변경/삭제), "
+        "Gmail 조회, 구글 캘린더 일정 조회/추가, 자동 아침 브리핑 시각 설정, 로컬 문서 의미 기반 검색까지 "
+        "도와주는 개인비서 에이전트입니다."
+    )
 
 
 def create_interaction(input_data, previous_interaction_id):
@@ -51,7 +88,7 @@ def create_interaction(input_data, previous_interaction_id):
         previous_interaction_id=previous_interaction_id,
         tools=tools.TOOLS,
         store=True,
-        system_instruction=SYSTEM_INSTRUCTION,
+        system_instruction=build_system_instruction(),
     )
 
 
@@ -257,6 +294,19 @@ def render_memo_table(results):
     return table
 
 
+def render_news_table(items):
+    table = flat_table()
+    table.add_column("분류", no_wrap=True, width=4)
+    table.add_column("헤드라인")
+    for item in items:
+        style = "blue" if item["category"] == "경제" else "magenta"
+        headline = Text(item["title"])
+        if item.get("link"):
+            headline.append("\n" + item["link"], style="dim underline")
+        table.add_row(Text(item["category"], style=style), headline)
+    return table
+
+
 def render_tool_result(name, result):
     """검색/예산 조회 결과는 표로, 예산 전체 조회는 지출 비중 차트도 함께 보여준다. 해당 없으면 None."""
     if name == "transaction_search" and isinstance(result, list) and result:
@@ -272,12 +322,51 @@ def render_tool_result(name, result):
         return render_todo_table(result)
     if name == "memo_search" and isinstance(result, list) and result:
         return render_memo_table(result)
+    if name == "news_briefing" and isinstance(result, dict) and result.get("items"):
+        return render_news_table(result["items"])
     return None
 
 
+def _result_content(name, result):
+    """function_result에 실을 콘텐츠 목록을 만든다.
+
+    보통은 텍스트(JSON) 하나뿐이지만, screen_capture처럼 file_path를 내놓는 도구는
+    이미지도 같이 실어서 Gemini가 같은 턴 안에서 화면을 직접 보게 한다.
+    """
+    content = [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}]
+    if name == "screen_capture" and isinstance(result, dict) and result.get("file_path"):
+        # SDK가 str은 이미 인코딩된 base64로 취급해 그대로 흘려보낸다. pathlib.Path(os.PathLike)를
+        # 넘겨야 파일을 읽어 실제로 base64 인코딩한다.
+        image_path = pathlib.Path(result["file_path"])
+        content.append({"type": "image", "data": image_path, "mime_type": "image/png"})
+    return content
+
+
+def _confirm_risky_action(message):
+    """위험한 동작을 실행하기 전에 터미널에서 y/n으로 확인받는다."""
+    console.print(Padding(Text(f"⚠ {message}", style="bold yellow"), (0, 0, 0, 2)))
+    answer = console.input("  [bold yellow]진행할까요? (y/N) › [/bold yellow]").strip().lower()
+    return answer in ("y", "yes", "네", "응", "ㅇ", "어")
+
+
 def execute_tool_call(step):
-    """function_call 스텝을 실제로 실행하면서, 실행 과정을 CLI에 살짝 보여준다."""
+    """function_call 스텝을 실제로 실행하면서, 실행 과정을 CLI에 살짝 보여준다.
+
+    저장 안 된 작업을 날리거나 파일을 옮기고 지우는 등 되돌리기 어려운 도구는
+    tools.CONFIRM_MESSAGES에 등록돼 있으면 실행 전에 사용자 확인을 먼저 받는다.
+    """
     console.print(f"  [dim]● {step.name}({format_args(step.arguments)})[/dim]")
+
+    confirm_message = tools.CONFIRM_MESSAGES.get(step.name)
+    if confirm_message and not _confirm_risky_action(confirm_message(step.arguments)):
+        result = {"message": "사용자가 취소해서 실행하지 않았습니다."}
+        console.print("  [dim]  ⎿ 취소됨[/dim]")
+        return {
+            "type": "function_result",
+            "name": step.name,
+            "call_id": step.id,
+            "result": _result_content(step.name, result),
+        }
 
     func = tools.FUNCTION_MAP[step.name]
     result = func(**step.arguments)
@@ -295,12 +384,7 @@ def execute_tool_call(step):
         "type": "function_result",
         "name": step.name,
         "call_id": step.id,
-        "result": [
-            {
-                "type": "text",
-                "text": json.dumps(result, ensure_ascii=False),
-            }
-        ],
+        "result": _result_content(step.name, result),
     }
 
 
@@ -386,6 +470,60 @@ HELP_SECTIONS = [
         ("날씨", "서울 날씨 어때?"),
         ("환율", "100달러면 원화로 얼마야?"),
     ]),
+    ("뉴스", [
+        ("오늘의 뉴스", "경제 3개 + IT 2개 헤드라인·주소를 보여준다 (제목·링크·요약문 포함)"),
+        ("자유 질문", "IT 뉴스만 보여줘 / 경제 뉴스 3개만 보여줘"),
+        ("후속 질문", "방금 그 뉴스 요약해서 내용 알려줘"),
+    ]),
+    ("PC 상태", [
+        ("전체 확인", "컴퓨터 왜 느린지 확인해줘"),
+        ("특정 지표", "지금 메모리 얼마나 쓰고 있어?"),
+    ]),
+    ("클립보드", [
+        ("읽기", "방금 복사한 내용 뭐야? / 이거 번역해줘"),
+        ("쓰기", "이 내용 클립보드에 복사해줘"),
+    ]),
+    ("화면 인식", [
+        ("화면 확인", "지금 화면 오류가 뭐야?"),
+        ("내용 정리", "화면에 있는 표 정리해줘"),
+    ]),
+    ("PC 제어", [
+        ("앱 실행/종료", "메모장 열어줘 / 디스코드 꺼줘"),
+        ("볼륨", "볼륨 30으로 낮춰줘 / 음소거해줘"),
+        ("화면 잠금", "화면 잠가줘"),
+    ]),
+    ("파일 관리", [
+        ("검색", "지난주에 만든 pdf 찾아줘"),
+        ("열기/읽기", "그 파일 열어줘 / 내용 요약해줘"),
+        ("복사/이동/이름변경", "바탕화면으로 옮겨줘 / 이름을 보고서로 바꿔줘"),
+        ("삭제", "그 파일 지워줘 (휴지통으로 이동, 확인 후 실행)"),
+    ]),
+    ("메일", [
+        ("검색", "오늘 온 메일 보여줘 / 안 읽은 메일 있어?"),
+        ("읽기", "그 메일 내용 요약해줘"),
+    ]),
+    ("일정", [
+        ("오늘 일정", "오늘 일정 뭐 있어?"),
+        ("기간 조회", "이번 주 일정 정리해줘"),
+        ("메일+일정", "오늘 중요한 메일하고 일정 정리해줘"),
+        ("선제적 알림", "회의 알림 15분 전으로 바꿔줘 / 일정 알림 꺼줘"),
+        ("참고", "일정 알림은 tray_app.py가 켜져 있어야 실제로 옵니다 (기본 10분 전)"),
+    ]),
+    ("자동 브리핑", [
+        ("시각 변경", "아침 브리핑 8시로 바꿔줘"),
+        ("끄기/켜기", "아침 브리핑 꺼줘 / 다시 켜줘"),
+        ("참고", "tray_app.py를 따로 실행해둬야 실제로 알림이 옵니다 (커리마 안이 아니라 별도 트레이 앱)"),
+    ]),
+    ("로컬 문서 검색", [
+        ("색인", "내 문서 자료 색인해줘 (문서·바탕화면 폴더, 처음 한 번 필요)"),
+        ("검색", "예전에 정리한 K-means 자료 찾아줘"),
+        ("참고", "파일 이름이 아니라 내용을 이해해서 찾습니다. 색인할 때 Gemini API를 호출해 시간이 걸릴 수 있어요"),
+    ]),
+    ("음성 웨이크워드", [
+        ("부르기", "\"커리마\"라고 부르면 삐 소리 후 명령을 들어요"),
+        ("끄기/켜기", "트레이 아이콘 우클릭 → 음성 인식 체크 해제/설정"),
+        ("참고", "여기서 하는 게 아니라 tray_app.py를 켜둬야 동작합니다. 앱 강제종료·파일삭제처럼 확인이 필요한 건 음성으로 실행 안 하고 커리마를 열라고 안내해요"),
+    ]),
 ]
 
 
@@ -416,13 +554,34 @@ def print_help_section(section):
 
 
 def print_welcome():
+    """처음 켰을 때 보여주는 짧은 인사말.
+
+    카테고리가 15개까지 늘어나서 매번 전부 나열하면 부담스럽다. 처음엔 몇 가지 예시만
+    보여주고, 전체 목록은 '도움말'을 직접 쳤을 때만(print_menu) 보여주기로 분리했다.
+    """
     console.rule(f"[bold]{ASSISTANT_NAME}[/bold]", style="cyan")
     console.print()
     console.print(Align.center(render_mascot()))
     console.print(Align.center(Text(f"안녕하세요! 저는 '{ASSISTANT_NAME}'예요, 필요한 걸 편하게 말씀해주세요!", style="bold cyan")))
     console.print()
 
-    console.print("무엇을 도와드릴까요? 번호나 이름을 입력하면 자세한 사용법을 보여드려요.\n", style="bold")
+    console.print("예를 들면 이런 걸 물어볼 수 있어요:\n", style="bold")
+    console.print(_example_grid([
+        ("가계부", "오늘 점심 만원 썼어"),
+        ("일정", "오늘 일정 뭐 있어?"),
+        ("PC 상태", "컴퓨터 왜 느린지 확인해줘"),
+    ]))
+
+    console.print("\n'도움말'이라고 하면 할 수 있는 것 전체를 볼 수 있어요.", style="dim")
+    console.print("'새 대화'로 대화를 초기화하고, '종료'로 끝냅니다.", style="dim italic")
+    console.print()
+
+
+def print_menu():
+    """'도움말'을 치면 보여주는 전체 카테고리 목록. 번호나 이름을 입력하면 그 카테고리의 자세한 예시가 나온다."""
+    console.rule(f"[bold]{ASSISTANT_NAME} — 할 수 있는 것[/bold]", style="cyan")
+    console.print()
+    console.print("번호나 이름을 입력하면 자세한 사용법을 보여드려요.\n", style="bold")
 
     menu = Table.grid(padding=(0, 1, 0, 2))
     menu.add_column(style="cyan", no_wrap=True)
@@ -433,7 +592,6 @@ def print_welcome():
 
     console.print("\n물론 메뉴를 거치지 않고 바로 자연어로 말씀하셔도 됩니다.", style="dim")
     console.print("'클로드 모드' / '코덱스 모드'로 코딩용 AI에게 직접 물어볼 수 있어요.", style="dim")
-    console.print("'도움말'로 이 메뉴를 다시 보고, '새 대화'로 대화를 초기화하고, '종료'로 끝냅니다.", style="dim italic")
     console.print()
 
 
@@ -729,7 +887,7 @@ def run():
                     )
                     console.print("[dim]새 대화로 시작합니다.[/dim]\n")
                     continue
-                if stripped.startswith("모델"):
+                if stripped == "모델" or stripped.startswith("모델 "):
                     model = stripped[len("모델"):].strip()
                     if not model:
                         current = agent_session["model"] or "기본값"
@@ -774,7 +932,7 @@ def run():
                 continue
 
             if stripped in ("도움말", "help"):
-                print_welcome()
+                print_menu()
                 continue
             if stripped in ("새 대화", "초기화"):
                 previous_interaction_id = None
