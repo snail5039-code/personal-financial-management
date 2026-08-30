@@ -5,7 +5,7 @@
 
 Gemini Function Calling으로 도구를 호출하고, 화면은 [Rich](https://github.com/Textualize/rich)로 그립니다.
 
-<img src="나만의_종합_에이전트/docs/screen-welcome.svg" width="700" alt="시작 화면">
+<img src="나만의_종합_에이전트/docs/screen-welcome-real.png" width="700" alt="시작 화면">
 
 ## 할 수 있는 것
 
@@ -35,13 +35,13 @@ Gemini Function Calling으로 도구를 호출하고, 화면은 [Rich](https://g
 
 예산 대비 사용률을 막대로 보여주고, 초과한 카테고리는 경고합니다.
 
-<img src="나만의_종합_에이전트/docs/screen-budget.svg" width="700" alt="예산 조회">
+<img src="나만의_종합_에이전트/docs/screen-budget-real.webp" width="700" alt="예산 조회">
 
 ### 할일 — 구글 할일 연동
 
 여기서 등록/완료/삭제한 항목이 **폰의 구글 할일 앱에도 바로 반영**됩니다.
 
-<img src="나만의_종합_에이전트/docs/screen-todo.svg" width="700" alt="할일 목록">
+<img src="나만의_종합_에이전트/docs/screen-todo-real.png" width="700" alt="할일 목록">
 
 ### PC 제어 · 파일 관리 — 위험한 동작은 먼저 확인받습니다
 
@@ -75,7 +75,14 @@ cd 나만의_종합_에이전트
 python tray_app.py
 ```
 
-실행하면 시스템 트레이(작업 표시줄 우측 하단)에 아이콘이 뜨고, 그때부터 네 가지를 백그라운드에서 합니다.
+실행하면 시스템 트레이(작업 표시줄 우측 하단)에 마스코트 아이콘이 뜨고, 그때부터 네 가지를 백그라운드에서 합니다.
+
+<img src="나만의_종합_에이전트/docs/tray-icon-real.png" width="300" alt="트레이 아이콘">
+
+응답을 기다리는 동안 "생각 중..." 알림이 먼저 뜨고, 잠시 뒤 답이 담긴 알림으로 바뀝니다(둘 다
+마스코트 아이콘 + 효과음).
+
+<img src="나만의_종합_에이전트/docs/notification-thinking-real.png" width="320" alt="생각 중 알림">　<img src="나만의_종합_에이전트/docs/notification-answer-real.png" width="320" alt="답변 알림">
 
 - **자동 아침 브리핑**: 설정된 시각(기본 오전 9시)에 오늘의 뉴스를 윈도우 알림으로 보냅니다.
   시각은 `app.py`에서 "아침 브리핑 8시로 바꿔줘"처럼 자연어로 바꿀 수 있고, "꺼줘"라고 하면 끌 수 있습니다.
