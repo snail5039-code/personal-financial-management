@@ -4,6 +4,8 @@
 필요하면 클로드나 코덱스를 불러 코딩 작업까지 맡길 수 있습니다.
 
 Gemini Function Calling으로 도구를 호출하고, 화면은 [Rich](https://github.com/Textualize/rich)로 그립니다.
+구조가 왜 이렇게 됐는지·어떻게 확장돼왔는지는 [ROADMAP.md](ROADMAP.md), 실제 코드가 어떤 순서로
+움직이는지는 [ARCHITECTURE.md](ARCHITECTURE.md)에 정리돼 있습니다.
 
 <img src="나만의_종합_에이전트/docs/screen-welcome-real.png" width="700" alt="시작 화면">
 
