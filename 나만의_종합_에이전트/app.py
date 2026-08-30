@@ -11,7 +11,10 @@ import os
 import pathlib
 import sys
 
-THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+# PyInstaller로 얼린 실행 파일 안에서는 __file__ 기반 경로가 exe가 실제로 있는 폴더를
+# 가리키지 않는다 - sys.executable 기준으로 잡아야 .env/credentials.json/data를 exe
+# 옆에서 제대로 찾는다. 소스로 바로 실행할 때(python app.py)는 지금까지와 동일하게 동작.
+THIS_DIR = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
 
 from dotenv import load_dotenv
 from google import genai
@@ -25,19 +28,56 @@ from rich.text import Text
 import agent_cli
 import tools
 
-sys.stdout.reconfigure(encoding="utf-8")
+# tray_app.py(콘솔 없는 백그라운드 앱)가 이 모듈을 불러올 때는 sys.stdout/stdin이 아예
+# None이라 reconfigure() 자체가 없다 - 터미널이 실제로 있을 때만 인코딩을 맞춘다.
+if sys.stdout is not None:
+    sys.stdout.reconfigure(encoding="utf-8")
+if sys.stdin is not None:
+    sys.stdin.reconfigure(encoding="utf-8")
 load_dotenv(os.path.join(THIS_DIR, ".env"))
 
 MODEL = "gemini-3.6-flash"
 
-client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 # 트레이 아이콘의 "커리마 열기"로 띄운 창은 Rich의 터미널 감지에 필요한 환경변수
 # (WT_SESSION 등)가 부모 프로세스(트레이 앱)로부터 그대로 안 내려오는 경우가 있어서,
 # 실제로는 트루컬러를 지원하는 터미널인데도 마스코트 배경색이 안 그려지는 문제가 있었다.
 # 환경변수 감지에 의존하지 말고 트루컬러를 강제한다.
-console = Console(color_system="truecolor")
+console = Console(color_system="truecolor", force_terminal=True, legacy_windows=False)
 
 ASSISTANT_NAME = "커리마"
+
+
+def _ensure_gemini_api_key():
+    """처음 설치한 사용자를 위한 최초 설정 - .env에 키가 없으면 터미널에서 직접 물어보고 저장한다.
+
+    tray_app.py처럼 터미널 입력을 받을 수 없는 곳에서 app 모듈을 불러올 때(터미널이 없거나
+    stdin이 연결 안 된 백그라운드 프로세스)는 사용자에게 물어볼 방법이 없으니, 대신 원인이
+    분명한 예외를 던져서 호출한 쪽(tray_app.py)이 알아서 안내하게 한다.
+    """
+    key = os.environ.get("GEMINI_API_KEY")
+    if key:
+        return key
+
+    if not sys.stdin.isatty():
+        raise RuntimeError(
+            "GEMINI_API_KEY가 설정돼 있지 않습니다. 먼저 'python app.py'를 터미널에서 직접 "
+            "실행해서 Gemini API 키를 등록해주세요."
+        )
+
+    console.print(f"\n[bold]{ASSISTANT_NAME}[/bold]를 처음 실행하시는군요! Gemini API 키가 필요해요.")
+    console.print("무료로 발급받으려면: https://aistudio.google.com/apikey\n")
+    while not key:
+        key = console.input("발급받은 Gemini API 키를 붙여넣어주세요 > ").strip()
+
+    env_path = os.path.join(THIS_DIR, ".env")
+    with open(env_path, "a", encoding="utf-8") as f:
+        f.write(f"GEMINI_API_KEY={key}\n")
+    os.environ["GEMINI_API_KEY"] = key
+    console.print("[green]저장했습니다. 다음부터는 다시 안 물어봐요.[/green]\n")
+    return key
+
+
+client = genai.Client(api_key=_ensure_gemini_api_key())
 
 
 def build_system_instruction():

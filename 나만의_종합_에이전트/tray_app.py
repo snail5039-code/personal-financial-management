@@ -19,6 +19,7 @@ import subprocess
 import sys
 import threading
 
+import comtypes.client
 import pystray
 import pythoncom
 import pyttsx3
@@ -27,13 +28,31 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 from winotify import Notification, audio
 
-import app as kurima_app
-import google_calendar
-import tools_news
-import tools_schedule
-import voice_assistant
+# comtypes는 COM 타입라이브러리 래퍼 코드(pyttsx3가 쓰는 SAPI5 포함)를 보통 디스크에
+# 캐시하는데, PyInstaller로 얼린 실행 파일 안에서는 그 캐시 위치에 못 쓸 수 있다(알려진
+# 이슈). 매번 메모리에서 새로 만들게 해서 이 문제를 피한다 - 시작 속도에 미미한 영향만 있음.
+comtypes.client.gen_dir = None
 
-THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+try:
+    import app as kurima_app
+    import google_calendar
+    import tools_news
+    import tools_schedule
+    import voice_assistant
+except Exception as e:
+    # 이 프로세스는 콘솔 창 없이(또는 자동 시작으로) 뜰 수도 있어서, 여기서 실패하면 사용자가
+    # 원인을 볼 방법이 없다 - 트레이 아이콘이 "떴다가 바로 사라지는" 원래 버그가 다시 벌어진다.
+    # 메시지박스로 무조건 눈에 보이게 띄우고 종료한다 (GEMINI_API_KEY 미설정이 가장 흔한 원인).
+    import ctypes
+
+    ctypes.windll.user32.MessageBoxW(
+        0, f"커리마를 시작할 수 없습니다.\n\n{e}", "커리마", 0x10
+    )
+    sys.exit(1)
+
+# PyInstaller로 얼린 실행 파일 안에서는 __file__ 기반 경로가 exe가 실제로 있는 폴더를
+# 가리키지 않는다 - sys.executable 기준으로 잡아야 data 폴더 등을 exe 옆에서 제대로 찾는다.
+THIS_DIR = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
 ASSISTANT_NAME = "커리마"
 
 DOWNLOADS_DIR = os.path.join(os.path.expanduser("~"), "Downloads")
@@ -247,18 +266,22 @@ def _proactive_loop(stop_event):
 # 트레이 아이콘 · 메뉴
 # ---------------------------------------------------------------------------
 def _open_kurima(icon, item):
+    # 얼린 실행 파일에서는 sys.executable이 tray_app 자신(KurimaTray.exe)이고 app.py도
+    # 없다 - 같은 폴더의 Kurima.exe(app.py를 빌드한 결과물)를 직접 띄운다. 소스로 실행
+    # 중이면(python tray_app.py) 지금까지처럼 python으로 app.py를 실행한다.
+    if getattr(sys, "frozen", False):
+        command = [os.path.join(THIS_DIR, "Kurima.exe")]
+    else:
+        command = [sys.executable, os.path.join(THIS_DIR, "app.py")]
+
     # CREATE_NEW_CONSOLE만 쓰면 예전 방식 콘솔(conhost)이 뜰 때가 있는데, 거기서는
     # 마스코트가 쓰는 트루컬러 배경색이 안 그려져서 실루엣이 안 보인다. Windows
     # Terminal(wt.exe)이 깔려 있으면 그걸로 열어서 제대로 보이게 한다.
     wt_path = shutil.which("wt.exe")
     if wt_path:
-        subprocess.Popen([wt_path, "-d", THIS_DIR, sys.executable, "app.py"])
+        subprocess.Popen([wt_path, "-d", THIS_DIR] + command)
     else:
-        subprocess.Popen(
-            [sys.executable, os.path.join(THIS_DIR, "app.py")],
-            cwd=THIS_DIR,
-            creationflags=subprocess.CREATE_NEW_CONSOLE,
-        )
+        subprocess.Popen(command, cwd=THIS_DIR, creationflags=subprocess.CREATE_NEW_CONSOLE)
 
 
 def run():

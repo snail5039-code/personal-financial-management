@@ -10,6 +10,7 @@ Pillow
 send2trash
 pycaw
 comtypes
+pywin32
 pystray
 winotify
 watchdog

@@ -6,9 +6,14 @@
 import datetime
 import json
 import os
+import sys
 
 import storage
 import undo
+
+# PyInstaller로 얼린 실행 파일 안에서는 __file__ 기반 경로가 exe가 실제로 있는 폴더를
+# 가리키지 않는다 - sys.executable 기준으로 잡아야 data를 exe 옆에서 제대로 찾는다.
+_THIS_DIR = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(__file__)
 
 
 def get_categories():
@@ -434,7 +439,7 @@ def transaction_Save_Json(id=None, category=None, date=None, query=None):
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"transactions_export_{timestamp}.json"
-    filepath = os.path.join(os.path.dirname(__file__), "data", filename)
+    filepath = os.path.join(_THIS_DIR, "data", filename)
 
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
     with open(filepath, "w", encoding="utf-8") as f:
@@ -512,7 +517,7 @@ def monthly_Transaction_History(month):
     markdown = "\n".join(lines)
 
     filename = f"monthly_report_{month}.md"
-    filepath = os.path.join(os.path.dirname(__file__), "data", filename)
+    filepath = os.path.join(_THIS_DIR, "data", filename)
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(markdown)

@@ -8,13 +8,17 @@ credentials.json(Google Cloud Console에서 발급받은 OAuth 클라이언트)�
 """
 
 import os
+import sys
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
-THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+# PyInstaller로 얼린 실행 파일 안에서는 __file__ 기반 경로가 exe가 실제로 있는 폴더를
+# 가리키지 않는다 - sys.executable 기준으로 잡아야 credentials.json/token을 exe 옆에서
+# 제대로 찾는다.
+THIS_DIR = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
 CREDENTIALS_PATH = os.path.join(THIS_DIR, "credentials.json")
 
 
