@@ -129,8 +129,9 @@ PC에 설치된 `claude`, `codex` CLI를 커리마 안에서 부릅니다. 이�
 
 ### 설치 파일로 설치하기 (Windows, 권장)
 
-Python을 따로 설치하지 않아도 됩니다. [Releases](../../releases)에서 `KurimaSetup.exe`를
-받아 실행하면 관리자 권한 없이 `%LOCALAPPDATA%\Programs\Kurima`에 설치되고, 시작 메뉴/바탕화면에
+Python을 따로 설치하지 않아도 됩니다.
+[여기서 `KurimaSetup.exe` 받기](https://github.com/snail5039-code/personal-financial-management/releases/tag/v1.0.0-installer)
+— 실행하면 관리자 권한 없이 `%LOCALAPPDATA%\Programs\Kurima`에 설치되고, 시작 메뉴/바탕화면에
 아이콘이 생깁니다(자동 시작 체크박스로 Windows 시작 시 트레이 앱을 바로 띄울 수도 있음).
 
 설치 후 처음 실행하면 Gemini API 키를 입력하라고 직접 물어봅니다 — 무료 발급 링크는
