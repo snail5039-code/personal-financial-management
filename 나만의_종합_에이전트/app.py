@@ -857,6 +857,12 @@ def ask_agent_and_print(agent_key, prompt, session):
         )
 
     if "error" in result:
+        # 첫 호출이 실패했으면 세션 id를 새로 뽑는다. 클로드는 --session-id를 한 번 쓰면
+        # 그 호출이 실패했더라도 id를 점유해버려서, 같은 id로 첫 호출을 다시 하면
+        # "Session ID ... is already in use"로 계속 막힌다. 로그인 전에 한 번 물어봐서
+        # 실패하고, 로그인한 뒤 다시 물어보는 흔한 흐름이 정확히 여기 걸렸다.
+        if not session["started"]:
+            session["id"] = agent_cli.new_session_id()
         console.print(f"[bold red]● {agent['label']} 오류[/bold red]")
         console.print(Padding(Text(result["error"], style="red"), (0, 0, 0, 2)))
         if any(hint in result["error"].lower() for hint in AUTH_ERROR_HINTS):

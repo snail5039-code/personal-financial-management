@@ -44,11 +44,15 @@ AGENTS = {
     "코덱스": {
         "label": "코덱스",
         "executable": "codex",
-        "first_args": ["exec", "{perm}", "{model}"],
-        # exec resume은 --sandbox/-m을 받지 않는다.
+        # --skip-git-repo-check: 코덱스는 git 저장소 밖에서 실행하면 기본적으로 거부한다
+        # ("Not inside a trusted directory..."). 설치해서 쓰면 작업 폴더가 설치 폴더(git
+        # 저장소가 아님)라서 항상 여기 걸린다. 쓰기 권한은 --sandbox가 따로 막고 있으니
+        # 이 검사만 건너뛴다. exec와 exec resume 양쪽 다 받는 옵션이다.
+        "first_args": ["exec", "--skip-git-repo-check", "{perm}", "{model}"],
+        # exec resume은 --sandbox를 받지 않는다.
         # 세션 id를 잡아냈으면 그걸 쓰고, 못 잡았으면 --last로 물러선다.
         # (--last는 다른 터미널에서 돌린 코덱스 대화를 이어받을 수 있다.)
-        "next_args": ["exec", "resume", "{session_or_last}"],
+        "next_args": ["exec", "resume", "--skip-git-repo-check", "{session_or_last}"],
         "read_args": ["--sandbox", "read-only"],
         # workspace-write는 작업 폴더 안에서만 쓰기를 허용한다.
         "write_args": ["--sandbox", "workspace-write"],
