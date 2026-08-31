@@ -5,7 +5,7 @@
 ; (미리 dist\Kurima에 kurima.spec으로 빌드해둔 실행 파일이 있어야 함)
 
 #define MyAppName "커리마"
-#define MyAppVersion "1.0"
+#define MyAppVersion "1.1"
 #define MyAppExeName "Kurima.exe"
 #define MyTrayExeName "KurimaTray.exe"
 
@@ -37,6 +37,10 @@ Name: "desktopicon"; Description: "바탕화면에 아이콘 만들기"; Flags: 
 Source: "dist\Kurima\Kurima.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "dist\Kurima\KurimaTray.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "dist\Kurima\_internal\*"; DestDir: "{app}\_internal"; Flags: ignoreversion recursesubdirs createallsubdirs
+; 스킬(skills/)은 exe 옆에 그대로 둔다 - _internal 안이나 exe 안에 넣으면 설치해서 쓰는
+; 사람이 SKILL.md를 추가/수정해서 스킬을 늘릴 수 없다. 개인 데이터가 아니라 앱 내용이므로
+; .env/credentials.json과 달리 설치 파일에 담는다.
+Source: "skills\*"; DestDir: "{app}\skills"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 ; 메인 아이콘은 트레이 앱(KurimaTray.exe)이다 - 켜두면 백그라운드에서 상주하면서

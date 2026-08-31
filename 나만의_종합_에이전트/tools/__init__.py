@@ -19,6 +19,7 @@
   tools_calendar  구글 캘린더 (조회 + 일정 추가)
   tools_schedule  자동 아침 브리핑 시각 설정 (실제 알림은 tray_app.py가 보냄)
   tools_local     로컬 문서 의미 기반 검색 (RAG) - 문서/바탕화면 폴더
+  tools_skill     스킬 (skills/ 폴더의 SKILL.md 절차 지시문을 필요할 때만 읽어옴)
 
 도구가 저장 안 된 작업을 날리거나(앱 강제종료) 파일을 옮기고 지우는 등 되돌리기 어려우면,
 아래 CONFIRM_MESSAGES에 등록해서 app.py가 실행 전에 터미널에서 사용자 확인을 받게 한다.
@@ -37,12 +38,16 @@ from . import tools_news
 from . import tools_pc
 from . import tools_schedule
 from . import tools_screen
+from . import tools_skill
 from . import tools_system
 from . import tools_todo
 from . import undo
 
 # 앱에서 카테고리 목록을 볼 때 쓴다.
 get_categories = tools_budget.get_categories
+
+# app.py가 시스템 지시문 끝에 붙일 스킬 목록 문구를 만들 때 쓴다.
+skills_summary_for_prompt = tools_skill.skills_summary_for_prompt
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +153,9 @@ REGISTRY = {
     tools_local: [
         "index_local_documents",
         "local_search",
+    ],
+    tools_skill: [
+        "read_skill",
     ],
 }
 

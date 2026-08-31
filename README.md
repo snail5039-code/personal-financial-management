@@ -1,7 +1,8 @@
 # 커리마 (Kurima)
 
 터미널에서 자연어로 대화하는 개인비서 CLI. 가계부·할일·메모·계산·날씨/환율을 말로 처리하고,
-필요하면 클로드나 코덱스를 불러 코딩 작업까지 맡길 수 있습니다.
+필요하면 클로드나 코덱스를 불러 코딩 작업까지 맡길 수 있습니다. 여러 도구를 정해진 순서로
+엮어야 하는 일은 `skills/` 폴더에 마크다운으로 적어두면 그 절차를 따릅니다.
 
 Gemini Function Calling으로 도구를 호출하고, 화면은 [Rich](https://github.com/Textualize/rich)로 그립니다.
 구조가 왜 이렇게 됐는지·어떻게 확장돼왔는지는 [ROADMAP.md](ROADMAP.md), 실제 코드가 어떤 순서로
@@ -31,6 +32,7 @@ Gemini Function Calling으로 도구를 호출하고, 화면은 [Rich](https://g
 | **선제적 제안** | "회의 알림 15분 전으로 바꿔줘" — 캘린더 일정이 곧 시작하면 먼저 알려줌 (트레이 앱 필요) |
 | **음성 웨이크워드** | "커리마"라고 부르고 말하면 답을 음성으로 (트레이 앱 필요, 아래 참고) |
 | **로컬 문서 검색** | "내 자료 색인해줘" 한 번 → "예전에 정리한 K-means 자료 찾아줘" (파일 이름이 아니라 내용 기반) |
+| **스킬** | "이번 달 정리해줘" · "오늘 뭐 있어?" · "내일 회의 준비해줘" — `skills/`에 적어둔 절차를 따라 여러 도구를 순서대로 엮어 실행 |
 | **되돌리기** | "방금 그거 취소해줘" (가계부·할일·메모·파일 이동/이름변경·캘린더 일정 추가 전부) |
 
 ### 가계부
@@ -65,6 +67,45 @@ Gemini Function Calling으로 도구를 호출하고, 화면은 [Rich](https://g
 - **이건 커리마의 다른 기능들과 달리 Gemini API 호출이 늘어납니다.** 색인할 때 문서 조각 수만큼,
   검색할 때 질문 1건당 임베딩 API가 한 번씩 호출됩니다. 다른 기능들(뉴스·날씨·환율·PC
   제어 등)은 전부 무료지만, 이 기능은 Gemini 사용량에 포함됩니다.
+
+### 스킬 — 마크다운 파일로 절차를 가르치기
+
+여러 도구를 정해진 순서로 엮어야 하는 일(예: 월말 가계부 마감)은 그때그때 설명하기 번거롭습니다.
+`skills/<이름>/SKILL.md` 파일에 절차를 적어두면 커리마가 관련된 요청에서 그 절차를 따릅니다.
+
+```
+skills/monthly-closing/SKILL.md
+```
+
+```markdown
+---
+name: monthly-closing
+description: 한 달 가계부를 마감 정리한다. "이번 달 정리해줘", "월말 결산"...
+---
+
+1. 대상 월을 정한다 (말 안 하면 이번 달)
+2. `transaction_Budget_Management`로 예산 대비 현황을 먼저 본다
+3. `monthly_Transaction_History`로 월간 리포트를 만든다
+...
+```
+
+**시스템 지시문에는 `description` 한 줄만 올라갑니다.** 본문은 커리마가 "이 요청은 이 스킬과
+관련 있다"고 판단했을 때 `read_skill` 도구로 직접 읽어갑니다. 그래서 스킬을 아무리 많이 늘려도
+관련 없는 대화에서는 토큰을 쓰지 않습니다. 현재 기본 스킬 5개 기준으로, 시스템 지시문에 실리는
+건 578자인데 실제 절차 본문은 5,512자입니다 — 90%가 필요할 때만 실립니다.
+
+**폴더만 추가하면 되고 코드는 안 고쳐도 됩니다.** 설치해서 쓰는 경우에도 설치 폴더의 `skills/`에
+`SKILL.md`를 넣으면 그대로 인식됩니다. 커리마를 켜둔 채 파일을 고쳐도 다음 요청부터 반영됩니다.
+
+기본으로 5개가 들어 있습니다.
+
+| 스킬 | 하는 일 |
+| --- | --- |
+| `monthly-closing` | 월말 가계부 마감 — 예산 대비 확인 → 리포트 생성 → 초과 원인 분석 → 보고 |
+| `morning-brief` | 오늘 하루 정리 — 일정·메일·할일을 모아 우선순위대로, "지금 뭐부터"까지 |
+| `meeting-prep` | 회의 준비 — 일정 특정 → 관련 메일·메모 수집 → 챙길 것 체크리스트 → 할일 등록 |
+| `local-search` | 로컬 문서 검색 — 색인이 없으면 시간·비용을 먼저 안내하고 진행 |
+| `briefing-setup` | 아침 브리핑 설정 — 트레이 앱이 켜져 있어야 알림이 온다는 것까지 안내 |
 
 ### 트레이 앱 — 자동 브리핑 · 다운로드 알림 (선택)
 
@@ -132,7 +173,7 @@ PC에 설치된 `claude`, `codex` CLI를 커리마 안에서 부릅니다. 이�
 ### 설치 파일로 설치하기 (Windows, 권장)
 
 Python을 따로 설치하지 않아도 됩니다.
-[여기서 `KurimaSetup.exe` 받기](https://github.com/snail5039-code/personal-financial-management/releases/tag/v1.0.0-installer)
+[여기서 `KurimaSetup.exe` 받기](https://github.com/snail5039-code/personal-financial-management/releases/latest)
 — 실행하면 관리자 권한 없이 `%LOCALAPPDATA%\Programs\Kurima`에 설치되고, 시작 메뉴/바탕화면에
 아이콘이 생깁니다(자동 시작 체크박스로 Windows 시작 시 트레이 앱을 바로 띄울 수도 있음).
 
@@ -235,6 +276,7 @@ Gmail은 읽기 전용입니다(메일 발송/삭제는 지원하지 않음). �
 │  ├─ tools_calendar.py 구글 캘린더 (조회 + 일정 추가)
 │  ├─ tools_schedule.py 자동 아침 브리핑 시각 설정
 │  ├─ tools_local.py    로컬 문서 의미 기반 검색 (RAG)
+│  ├─ tools_skill.py    스킬 (skills/ 폴더의 SKILL.md 절차를 필요할 때만 읽어옴)
 │  │
 │  ├─ storage.py        거래 내역 저장 (data/transactions.json)
 │  ├─ memo_storage.py   메모 저장 (data/memos.json)
@@ -244,6 +286,13 @@ Gmail은 읽기 전용입니다(메일 발송/삭제는 지원하지 않음). �
 │  ├─ weather.py        날씨 조회 (wttr.in)
 │  ├─ exchange.py       환율 조회 (Frankfurter)
 │  └─ news.py           뉴스 조회 (연합뉴스 · 전자신문 RSS)
+│
+├─ skills/           스킬 — 여러 도구를 엮는 절차를 적은 마크다운 (폴더만 추가하면 늘어남)
+│  ├─ monthly-closing/SKILL.md   월말 가계부 마감 정리
+│  ├─ morning-brief/SKILL.md     오늘 하루 브리핑 (일정·메일·할일)
+│  ├─ meeting-prep/SKILL.md      회의·약속 준비
+│  ├─ local-search/SKILL.md      로컬 문서 검색 (색인 먼저 안내)
+│  └─ briefing-setup/SKILL.md    아침 브리핑 설정
 │
 ├─ google_api/       구글 API 호출 계층 (스키마 없음 — tools/·tray_app.py가 갖다 씀)
 │  ├─ google_auth.py    구글 API 공용 인증 헬퍼 (서비스별 토큰 분리)
@@ -268,6 +317,11 @@ Gmail은 읽기 전용입니다(메일 발송/삭제는 지원하지 않음). �
 
 되돌리기는 `tools/undo.py`가 "되돌리는 방법"을 함수로 기억하는 방식이라, 새 도메인을 추가해도
 `undo.record(...)`만 호출하면 자동으로 지원됩니다.
+
+**스킬을 추가하려면** `skills/<이름>/SKILL.md` 파일 하나만 만들면 됩니다(`REGISTRY` 등록 불필요).
+도구는 "커리마가 무엇을 할 수 있는지"를 늘리고, 스킬은 "이미 있는 도구를 어떤 순서로 쓰는지"를
+가르칩니다. 그래서 새 기능이 필요하면 도구를, 절차나 판단 기준을 정해주고 싶으면 스킬을 씁니다.
+`skills/` 폴더가 없거나 비어 있으면 스킬 기능만 조용히 꺼지고 나머지는 그대로 동작합니다.
 
 ## 알아두면 좋은 것
 

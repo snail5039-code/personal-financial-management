@@ -89,7 +89,7 @@ def build_system_instruction():
     now = datetime.datetime.now()
     today = now.strftime("%Y-%m-%d")
     now_time = now.strftime("%H:%M")
-    return (
+    base = (
         f"당신의 이름은 '{ASSISTANT_NAME}'입니다. 지금은 {today} {now_time}입니다. "
         "사용자가 '오늘', '어제', '이번 달'처럼 상대적인 날짜나 '15분 후', '지금부터 1시간 뒤'처럼 "
         "상대적인 시각을 말하면 이 날짜/시각을 기준으로 계산해서 도구 호출 시 날짜는 YYYY-MM-DD, "
@@ -119,6 +119,14 @@ def build_system_instruction():
         "Gmail 조회, 구글 캘린더 일정 조회/추가, 자동 아침 브리핑 시각 설정, 로컬 문서 의미 기반 검색까지 "
         "도와주는 개인비서 에이전트입니다."
     )
+
+    # 스킬은 이름 + 한 줄 설명만 여기 붙인다. 본문은 모델이 필요할 때 read_skill로 직접
+    # 읽어간다(tools/tools_skill.py 참고). skills/ 폴더가 없거나 비어 있으면 빈 문자열이
+    # 와서 지금까지와 완전히 동일하게 동작한다.
+    skills = tools.skills_summary_for_prompt()
+    if skills:
+        return base + "\n\n" + skills
+    return base
 
 
 def create_interaction(input_data, previous_interaction_id):
