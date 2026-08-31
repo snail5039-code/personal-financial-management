@@ -40,11 +40,17 @@
 `기본_CLI/`는 원본 가계부 전용 CLI의 스냅샷으로 **개발 중단 상태**다(더 이상 갱신 안 함).
 실제 개발은 전부 `나만의_종합_에이전트/`에서 진행한다.
 
-`나만의_종합_에이전트/`는 도메인별로 `tools_*.py` 파일을 나누고, `tools.py`가 이걸 전부 모아
-Gemini에 넘길 스키마 목록(`TOOLS`)과 이름→함수 매핑(`FUNCTION_MAP`)을 만드는 구조다. 새 기능을
-추가할 때 손대는 파일이 항상 같은 패턴(`tools_*.py`에 함수+스키마 추가 → `tools.py`의
-`REGISTRY`에 등록 → 위험한 동작이면 `CONFIRM_MESSAGES`에도 등록)이라, 파일이 늘어나도 구조가
-헷갈리지 않는다. 전체 파일 지도는 [README.md의 "구조" 절](README.md#구조)에 있다.
+`나만의_종합_에이전트/`는 도메인별로 `tools/tools_*.py` 파일을 나누고, `tools/__init__.py`가
+이걸 전부 모아 Gemini에 넘길 스키마 목록(`TOOLS`)과 이름→함수 매핑(`FUNCTION_MAP`)을 만드는
+구조다. 새 기능을 추가할 때 손대는 파일이 항상 같은 패턴(`tools/tools_*.py`에 함수+스키마 추가
+→ `tools/__init__.py`의 `REGISTRY`에 등록 → 위험한 동작이면 `CONFIRM_MESSAGES`에도 등록)이라,
+파일이 늘어나도 구조가 헷갈리지 않는다.
+
+구글 API 호출은 `google_api/`로 따로 뺐다 — 여기엔 Gemini용 스키마가 없고 순수하게 구글
+서버와 통신하는 부품만 있다. `tools/tools_calendar.py`처럼 Gemini에 노출할 도구가 이걸 포장해서
+쓰고, Gemini를 거치지 않는 `tray_app.py`의 백그라운드 루프는 `google_api/`를 직접 호출한다.
+루트에는 진입점(`app.py`, `agent_cli.py`, `tray_app.py`, `voice_assistant.py`)과 패키징 파일만
+남겼다. 전체 파일 지도는 [README.md의 "구조" 절](README.md#구조)에 있다.
 
 ## 3. 도구 현황 (총 53개)
 
@@ -67,7 +73,7 @@ Gemini에 넘길 스키마 목록(`TOOLS`)과 이름→함수 매핑(`FUNCTION_M
 | 로컬 문서 검색(RAG) | 2 | Gemini 임베딩 비용 발생하는 유일한 기능 |
 | 되돌리기 | 1 | 도메인 무관 공용 |
 
-새 도구를 등록할 때 되돌리기 어려운 동작(삭제·강제종료·일정 추가 등)이면 `tools.py`의
+새 도구를 등록할 때 되돌리기 어려운 동작(삭제·강제종료·일정 추가 등)이면 `tools/__init__.py`의
 `CONFIRM_MESSAGES`에 등록해서, 터미널이면 y/n으로, 음성 웨이크워드 중이면 삐 소리 + "네"로
 확인을 받게 한다(자세한 흐름은 [ARCHITECTURE.md](ARCHITECTURE.md) 참고).
 
@@ -126,7 +132,8 @@ GitHub Releases에 실행 파일만 올려둔다. 다시 빌드할 때 특히 �
 - 모바일에서 가계부·할일·메모·날씨·환율·뉴스·Gmail·캘린더만 텔레그램 봇으로 쓰는 안을
   검토했으나, 배포 계획이 없어 보류(PC 제어 등 나머지 기능은 "이 컴퓨터"를 조작하는 거라
   폰에서는 의미가 없거나 원격 제어가 따로 필요함).
-- `google_tasks.py`가 `google_auth.py`와 별개로 `credentials.json` 경로를 중복 계산하고
-  있음 — 패키징 자체엔 문제없지만 언젠가 `google_auth.get_service()`로 통합할 여지 있음.
+- `google_api/google_tasks.py`가 `google_api/google_auth.py`와 별개로 `credentials.json` 경로를
+  중복 계산하고 있음 — 패키징 자체엔 문제없지만 언젠가 `google_auth.get_service()`로 통합할
+  여지 있음.
 
 **커밋 규칙**: 한국어 + `feat:`/`fix:`/`refactor:`/`docs:` 같은 conventional 접두사 유지.

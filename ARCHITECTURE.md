@@ -14,11 +14,11 @@
                                               │
                                     (같은 도구 파이프라인을 그대로 재사용)
                                               ▼
-                                       tools.py (TOOLS/FUNCTION_MAP)
+                                  tools/__init__.py (TOOLS/FUNCTION_MAP)
                                               │
-                                 tools_budget.py / tools_todo.py / ... (도메인별 실행)
+                          tools/tools_budget.py / tools_todo.py / ... (도메인별 실행)
                                               │
-                                     data/*.json, 구글 API, PC 제어 등
+                          data/*.json, google_api/*(구글 API), PC 제어 등
 ```
 
 `app.py`와 `tray_app.py`는 완전히 다른 프로세스지만, 실제 "명령 처리"는 둘 다
@@ -94,25 +94,29 @@
 
 ## 5. 구글 연동 흐름
 
-- `google_auth.py`가 서비스 공용 인증 헬퍼: `data/<service>_token.json`이 있으면 그걸로,
-  없거나 만료됐으면 `credentials.json`으로 OAuth 브라우저 로그인을 새로 띄운다.
-- Gmail(`tools_gmail.py`)·구글 캘린더(`tools_calendar.py`)는 이 헬퍼를 통해 서비스 객체를
-  얻고, 서비스별로 토큰을 분리 저장해서 권한이 서로 영향을 안 준다.
-- `google_tasks.py`(할일)만 이 헬퍼를 안 쓰고 자기만의 인증 로직을 따로 갖고 있다(중복 —
-  `ROADMAP.md` 7절에 정리된 미해결 항목).
+구글 연동은 두 계층으로 나뉜다. `google_api/`는 구글 서버에 실제 요청을 보내는 부품이고
+(Gemini용 스키마가 없다), `tools/tools_*.py`가 그걸 Gemini가 호출할 수 있게 포장한다.
+Gemini를 거치지 않는 `tray_app.py`의 백그라운드 루프는 `google_api/`를 직접 호출한다.
+
+- `google_api/google_auth.py`가 서비스 공용 인증 헬퍼: `data/<service>_token.json`이 있으면
+  그걸로, 없거나 만료됐으면 `credentials.json`으로 OAuth 브라우저 로그인을 새로 띄운다.
+- Gmail(`tools/tools_gmail.py`)·구글 캘린더(`tools/tools_calendar.py`)는 이 헬퍼를 통해 서비스
+  객체를 얻고, 서비스별로 토큰을 분리 저장해서 권한이 서로 영향을 안 준다.
+- `google_api/google_tasks.py`(할일)만 이 헬퍼를 안 쓰고 자기만의 인증 로직을 따로 갖고
+  있다(중복 — `ROADMAP.md` 7절에 정리된 미해결 항목).
 - 캘린더 일정 추가(`calendar_add_event`)는 `tools.CONFIRM_MESSAGES`에 등록돼 있어서 2/4절의
   확인 흐름을 그대로 타고, 실행되면 `undo.record()`로 되돌리기(일정 삭제)까지 등록된다.
 
-## 6. 되돌리기(`undo.py`) 흐름
+## 6. 되돌리기(`tools/undo.py`) 흐름
 
-`undo.py`는 "무엇을 되돌릴지"를 전혀 모르고, 각 도메인이 작업 직전에 `undo.record(fn)`으로
+`tools/undo.py`는 "무엇을 되돌릴지"를 전혀 모르고, 각 도메인이 작업 직전에 `undo.record(fn)`으로
 "되돌리는 함수"만 하나 등록해두는 구조다. `undo_last_action` 도구가 호출되면 마지막으로
 등록된 함수 하나만 실행하고 비운다(다단계 undo 아님, 도메인 상관없이 전역 1건).
 
 ## 7. 설치 파일 빌드 흐름
 
 ```
-소스(app.py, tray_app.py, tools_*.py, ...)
+소스(app.py, tray_app.py, tools/, google_api/, ...)
         │  pyinstaller kurima.spec
         ▼
 dist/Kurima/  (Kurima.exe + KurimaTray.exe + _internal/ 공용 의존성)

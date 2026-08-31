@@ -215,7 +215,11 @@ Gmail은 읽기 전용입니다(메일 발송/삭제는 지원하지 않음). �
 나만의_종합_에이전트/
 ├─ app.py            대화 루프와 터미널 화면 (Rich)
 ├─ agent_cli.py      클로드/코덱스 CLI 호출
-├─ tools.py          도구 모음 — 도메인 모듈을 모아 Gemini에 넘길 목록 생성
+├─ tray_app.py       트레이 앱 — 자동 브리핑 · 다운로드 알림 · 음성 웨이크워드 (app.py와 별도 프로세스)
+├─ voice_assistant.py 음성 웨이크워드 인식 (faster-whisper), tray_app.py가 씀
+│
+├─ tools/            Gemini에 넘길 도구 계층 (함수 + 스키마)
+│  ├─ __init__.py       도구 모음 — 도메인 모듈을 모아 Gemini에 넘길 목록 생성 (REGISTRY)
 │  ├─ tools_budget.py   거래 · 예산 · 카테고리
 │  ├─ tools_todo.py     할일 (구글 할일)
 │  ├─ tools_memo.py     메모
@@ -230,31 +234,39 @@ Gmail은 읽기 전용입니다(메일 발송/삭제는 지원하지 않음). �
 │  ├─ tools_gmail.py    Gmail (읽기 전용)
 │  ├─ tools_calendar.py 구글 캘린더 (조회 + 일정 추가)
 │  ├─ tools_schedule.py 자동 아침 브리핑 시각 설정
-│  └─ tools_local.py    로컬 문서 의미 기반 검색 (RAG)
-├─ local_index.py    문서 색인·임베딩·유사도 검색 로직, tools_local.py가 씀
-├─ tray_app.py       트레이 앱 — 자동 브리핑 · 다운로드 알림 · 음성 웨이크워드 (app.py와 별도 프로세스)
-├─ voice_assistant.py 음성 웨이크워드 인식 (faster-whisper), tray_app.py가 씀
-├─ undo.py           되돌리기 공용 저장소
-├─ storage.py        거래 내역 저장 (data/transactions.json)
-├─ memo_storage.py   메모 저장 (data/memos.json)
-├─ google_auth.py    구글 API 공용 인증 헬퍼 (서비스별 토큰 분리)
-├─ google_tasks.py   구글 할일 API
-├─ google_gmail.py   Gmail API
-├─ google_calendar.py 구글 캘린더 API
-├─ calculator.py     계산 로직
-├─ weather.py        날씨 조회 (wttr.in)
-├─ exchange.py       환율 조회 (Frankfurter)
-├─ news.py           뉴스 조회 (연합뉴스 · 전자신문 RSS)
+│  ├─ tools_local.py    로컬 문서 의미 기반 검색 (RAG)
+│  │
+│  ├─ storage.py        거래 내역 저장 (data/transactions.json)
+│  ├─ memo_storage.py   메모 저장 (data/memos.json)
+│  ├─ undo.py           되돌리기 공용 저장소
+│  ├─ local_index.py    문서 색인·임베딩·유사도 검색 로직, tools_local.py가 씀
+│  ├─ calculator.py     계산 로직
+│  ├─ weather.py        날씨 조회 (wttr.in)
+│  ├─ exchange.py       환율 조회 (Frankfurter)
+│  └─ news.py           뉴스 조회 (연합뉴스 · 전자신문 RSS)
+│
+├─ google_api/       구글 API 호출 계층 (스키마 없음 — tools/·tray_app.py가 갖다 씀)
+│  ├─ google_auth.py    구글 API 공용 인증 헬퍼 (서비스별 토큰 분리)
+│  ├─ google_tasks.py   구글 할일 API
+│  ├─ google_gmail.py   Gmail API
+│  └─ google_calendar.py 구글 캘린더 API
+│
 ├─ kurima.spec       PyInstaller 빌드 설정 (Kurima.exe/KurimaTray.exe)
 ├─ kurima_setup.iss  Inno Setup 설치 파일 빌드 설정
 └─ kurima.ico        마스코트 아이콘 (exe/설치 파일/트레이 아이콘에 공통 사용)
 ```
 
-도구를 추가하려면 알맞은 `tools_*.py`에 구현 함수와 스키마를 넣고, `tools.py`의 `REGISTRY`에
-이름을 등록하면 됩니다. 새 도구가 되돌리기 어려운 동작(삭제·강제종료 등)이면 `tools.py`의
-`CONFIRM_MESSAGES`에 등록해서 `app.py`가 실행 전에 자동으로 y/n 확인을 받게 할 수 있습니다.
+코드는 두 계층으로 나뉩니다. `google_api/`는 구글 서버에 실제로 요청을 보내는 부품이고,
+`tools/`는 그 부품을 Gemini가 호출할 수 있게 스키마(`<함수명>_tool`)와 함께 포장한 도구입니다.
+그래서 `google_api/`에는 스키마가 없고, Gemini를 거치지 않는 `tray_app.py`의 백그라운드 루프는
+`google_api/`를 직접 호출합니다.
 
-되돌리기는 `undo.py`가 "되돌리는 방법"을 함수로 기억하는 방식이라, 새 도메인을 추가해도
+도구를 추가하려면 알맞은 `tools/tools_*.py`에 구현 함수와 스키마를 넣고,
+`tools/__init__.py`의 `REGISTRY`에 이름을 등록하면 됩니다. 새 도구가 되돌리기 어려운
+동작(삭제·강제종료 등)이면 `tools/__init__.py`의 `CONFIRM_MESSAGES`에 등록해서 `app.py`가
+실행 전에 자동으로 y/n 확인을 받게 할 수 있습니다.
+
+되돌리기는 `tools/undo.py`가 "되돌리는 방법"을 함수로 기억하는 방식이라, 새 도메인을 추가해도
 `undo.record(...)`만 호출하면 자동으로 지원됩니다.
 
 ## 알아두면 좋은 것

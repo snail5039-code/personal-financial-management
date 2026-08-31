@@ -14,8 +14,8 @@
 
 ## 정리하면 좋은 것 (동작엔 문제없는 기술 부채)
 
-- `google_tasks.py`가 `google_auth.py`와 별개로 `credentials.json` 경로를 자기 방식대로
-  다시 계산하고 있음 — `google_auth.get_service()`로 통합하면 중복이 없어짐.
+- `google_api/google_tasks.py`가 `google_api/google_auth.py`와 별개로 `credentials.json` 경로를
+  자기 방식대로 다시 계산하고 있음 — `google_auth.get_service()`로 통합하면 중복이 없어짐.
 
 ## 보류 중인 것
 

@@ -1,6 +1,6 @@
 """가계부 도우미 - Claude Code 스타일 CLI
 
-이 폴더 안의 tools.py/storage.py(실제 로직)와 Gemini Interactions API 연동 로직을 쓰고,
+이 폴더 안의 tools/ 패키지(실제 로직)와 Gemini Interactions API 연동 로직을 쓰고,
 그 위에 터미널 UI(rich)를 입힌 것이다. 기본_CLI 폴더와는 완전히 독립적인 사본이다.
 """
 

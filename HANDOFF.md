@@ -37,8 +37,8 @@ GitHub Releases에 올렸다. 프로젝트 문서(README/ROADMAP/ARCHITECTURE)�
 
 ## 알려진 이슈 / 남은 일
 
-- `google_tasks.py`가 `google_auth.py`와 별개로 `credentials.json` 경로를 중복 계산하고
-  있음 — 동작엔 문제없지만 언젠가 `google_auth.get_service()`로 통합하면 좋음
+- `google_api/google_tasks.py`가 `google_api/google_auth.py`와 별개로 `credentials.json` 경로를
+  중복 계산하고 있음 — 동작엔 문제없지만 언젠가 `google_auth.get_service()`로 통합하면 좋음
   (ROADMAP.md 7절 참고).
 - 설치 마법사의 **"Windows 시작 시 자동 실행" 체크박스**는 코드만 짜뒀고, 실제로 컴퓨터를
   재부팅해서 자동으로 뜨는지까지는 아직 검증 안 됨.
