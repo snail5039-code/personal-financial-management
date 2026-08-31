@@ -3,8 +3,8 @@
 등록/완료/삭제한 항목은 같은 계정의 구글 할일 앱에도 바로 반영된다.
 """
 
-import google_tasks
-import undo
+from google_api import google_tasks
+from . import undo
 
 
 # ---------------------------------------------------------------------------

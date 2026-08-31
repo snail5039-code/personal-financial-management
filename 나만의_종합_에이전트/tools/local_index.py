@@ -18,7 +18,7 @@ import docx
 
 # PyInstaller로 얼린 실행 파일 안에서는 __file__ 기반 경로가 exe가 실제로 있는 폴더를
 # 가리키지 않는다 - sys.executable 기준으로 잡아야 .env/data를 exe 옆에서 제대로 찾는다.
-THIS_DIR = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
+THIS_DIR = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 load_dotenv(os.path.join(THIS_DIR, ".env"))
 
 INDEX_PATH = os.path.join(THIS_DIR, "data", "local_index.json")

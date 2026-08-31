@@ -6,7 +6,7 @@ google_tasks.py와 별개 토큰 파일(data/google_gmail_token.json)을 쓴다.
 
 import base64
 
-import google_auth
+from . import google_auth
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 

@@ -35,9 +35,9 @@ comtypes.client.gen_dir = None
 
 try:
     import app as kurima_app
-    import google_calendar
-    import tools_news
-    import tools_schedule
+    from google_api import google_calendar
+    from tools import tools_news
+    from tools import tools_schedule
     import voice_assistant
 except Exception as e:
     # 이 프로세스는 콘솔 창 없이(또는 자동 시작으로) 뜰 수도 있어서, 여기서 실패하면 사용자가

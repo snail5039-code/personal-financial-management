@@ -8,12 +8,13 @@ import json
 import os
 import sys
 
-import storage
-import undo
+from . import storage
+from . import undo
 
 # PyInstaller로 얼린 실행 파일 안에서는 __file__ 기반 경로가 exe가 실제로 있는 폴더를
 # 가리키지 않는다 - sys.executable 기준으로 잡아야 data를 exe 옆에서 제대로 찾는다.
-_THIS_DIR = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(__file__)
+# 소스 실행 시에는 이 파일이 tools/ 아래로 한 단계 들어와 있으니 한 번 더 올라간다.
+_THIS_DIR = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.dirname(__file__))
 
 
 def get_categories():

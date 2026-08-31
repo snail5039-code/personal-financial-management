@@ -2,8 +2,8 @@
 
 import datetime
 
-import memo_storage
-import undo
+from . import memo_storage
+from . import undo
 
 
 def _save_snapshot(data):

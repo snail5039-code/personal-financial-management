@@ -1,8 +1,8 @@
 """구글 캘린더 도구 (조회 + 일정 추가)."""
 
-import google_auth
-import google_calendar
-import undo
+from google_api import google_auth
+from google_api import google_calendar
+from . import undo
 
 
 def _error_message(e):

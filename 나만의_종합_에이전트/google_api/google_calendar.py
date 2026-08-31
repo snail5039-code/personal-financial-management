@@ -5,7 +5,7 @@ calendar.events 스코프는 일정(이벤트) 읽기/쓰기만 허용하고 캘
 건드릴 수 없어서, 필요한 만큼만 권한을 요청하려고 이걸 쓴다.
 """
 
-import google_auth
+from . import google_auth
 
 SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
 TIMEZONE = "Asia/Seoul"

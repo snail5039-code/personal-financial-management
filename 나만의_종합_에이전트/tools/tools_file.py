@@ -9,7 +9,7 @@ import shutil
 
 import send2trash
 
-import undo
+from . import undo
 
 # 시스템 전체를 훑지 않도록 검색 기본 범위를 사용자 홈 폴더로 한정한다.
 DEFAULT_SEARCH_ROOT = os.path.expanduser("~")

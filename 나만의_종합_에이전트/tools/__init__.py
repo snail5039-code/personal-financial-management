@@ -24,22 +24,22 @@
 아래 CONFIRM_MESSAGES에 등록해서 app.py가 실행 전에 터미널에서 사용자 확인을 받게 한다.
 """
 
-import tools_budget
-import tools_calc
-import tools_calendar
-import tools_clipboard
-import tools_file
-import tools_gmail
-import tools_info
-import tools_local
-import tools_memo
-import tools_news
-import tools_pc
-import tools_schedule
-import tools_screen
-import tools_system
-import tools_todo
-import undo
+from . import tools_budget
+from . import tools_calc
+from . import tools_calendar
+from . import tools_clipboard
+from . import tools_file
+from . import tools_gmail
+from . import tools_info
+from . import tools_local
+from . import tools_memo
+from . import tools_news
+from . import tools_pc
+from . import tools_schedule
+from . import tools_screen
+from . import tools_system
+from . import tools_todo
+from . import undo
 
 # 앱에서 카테고리 목록을 볼 때 쓴다.
 get_categories = tools_budget.get_categories

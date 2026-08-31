@@ -1,7 +1,7 @@
 """조회 도구 (날씨 · 환율). 둘 다 API 키 없이 쓰는 무료 서비스를 부른다."""
 
-import exchange
-import weather
+from . import exchange
+from . import weather
 
 
 # ---------------------------------------------------------------------------

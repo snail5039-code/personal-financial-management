@@ -1,7 +1,7 @@
 """Gmail 도구 (읽기 전용). 메일 발송/삭제는 지원하지 않는다."""
 
-import google_auth
-import google_gmail
+from google_api import google_auth
+from google_api import google_gmail
 
 
 def _error_message(e):
